@@ -400,6 +400,16 @@
 
   function fmtInt(n) { return Number(n).toLocaleString('en'); }
 
+  var OSM_HAS = {
+    hours: 'opening hours', cuisine: 'cuisine', phone: 'phone', web: 'website', addr: 'street address',
+    diet: 'dietary options', service: 'takeaway or seating', survey: 'a recent check', local_name: 'a local-language name'
+  };
+
+  function listWords(a) {
+    if (a.length < 2) return a.join('');
+    return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+  }
+
   // Measurements only, in plain words; never a verdict like "locals love this" (docs/contract.md).
   function evidenceLines(spot, cc) {
     var sig = (spot.signals && typeof spot.signals === 'object') ? spot.signals : {};
@@ -413,6 +423,18 @@
         ' (' + fmtInt(sig.local_views || 0) + ' in the past year)');
     } else if (typeof sig.local_views === 'number') {
       lines.push('Too few Wikipedia lookups to compare languages');
+    }
+    if (typeof sig.osm_detail === 'number') {
+      var asOf = data && data.signals_as_of && data.signals_as_of.osm;
+      var when = asOf ? ' (as of ' + fmtDate(asOf) + ')' : '';
+      if (sig.osm_chain) {
+        lines.push('Part of a chain brand on OpenStreetMap' + when);
+      } else {
+        var has = (Array.isArray(sig.osm_has) ? sig.osm_has : []).map(function (k) { return OSM_HAS[k]; }).filter(Boolean);
+        lines.push(has.length
+          ? 'Mapped on OpenStreetMap with ' + listWords(has) + when
+          : 'On OpenStreetMap, with no extra detail mapped' + when);
+      }
     }
     if (typeof sig.sitelinks === 'number' && sig.sitelinks > 0) {
       lines.push('Covered by ' + sig.sitelinks + ' Wikimedia site' + (sig.sitelinks === 1 ? '' : 's'));
@@ -437,9 +459,9 @@
     } else if (hasLocality(spot)) {
       // the build nulls a score when too few comparable spots have evidence (MIN_POOL in ulu/score.py)
       box.appendChild(el('p', 'ev-score', 'Too few ' + catLabel(spot.cat) + ' in ' +
-        ((data && data.name) || 'this country') + ' have local-reading evidence to rank this one fairly, so no Ulu score yet.'));
+        ((data && data.name) || 'this country') + ' have local evidence to rank this one fairly, so no Ulu score yet.'));
     } else {
-      box.appendChild(el('p', 'ev-score', 'No local-reading evidence for this spot yet, so it has no Ulu score.'));
+      box.appendChild(el('p', 'ev-score', 'No local evidence for this spot yet, so it has no Ulu score.'));
     }
     var lines = evidenceLines(spot, item.cc);
     if (lines.length) {
@@ -674,6 +696,18 @@
       var a = el('a', '', u.replace(/^https?:\/\//i, '').replace(/\/$/, ''));
       a.href = u; a.target = '_blank'; a.rel = 'noopener';
       p.appendChild(a);
+    }
+    // ODbL 4.3 notice: shown whenever the build says some country carries OpenStreetMap signals
+    var o = att.osm;
+    if (o && o.text) {
+      p.appendChild(document.createTextNode('. ' + o.text + ': '));
+      [[safeHttp(o.url), 'openstreetmap.org/copyright'], [safeHttp(o.licence_url), 'ODbL']].forEach(function (pair, i) {
+        if (!pair[0]) return;
+        if (i) p.appendChild(document.createTextNode(', '));
+        var l = el('a', '', pair[1]);
+        l.href = pair[0]; l.target = '_blank'; l.rel = 'noopener';
+        p.appendChild(l);
+      });
     }
     $('refreshed').textContent = 'Spots data refreshed ' + fmtDate(idx.generated);
   }

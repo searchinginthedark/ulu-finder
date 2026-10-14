@@ -8,7 +8,9 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
 ```json
 {
   "generated": "2026-10-14T03:00:00Z",
-  "attribution": {"text": "Listings from Wikivoyage (CC BY-SA 4.0) and Wikidata (CC0)", "url": "https://en.wikivoyage.org/"},
+  "attribution": {"text": "Listings from Wikivoyage (CC BY-SA 4.0) and Wikidata (CC0)", "url": "https://en.wikivoyage.org/",
+                  "osm": {"text": "Local map detail © OpenStreetMap contributors, available under the Open Database License (ODbL)",
+                          "url": "https://www.openstreetmap.org/copyright", "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/"}},
   "categories": [
     {"id": "dine", "label": "Dine"}, {"id": "markets", "label": "Markets & Hawkers"},
     {"id": "cafes", "label": "Cafes & Bars"}, {"id": "shopping", "label": "Shopping"},
@@ -21,6 +23,8 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
 }
 ```
 
+- `attribution.osm` is REQUIRED whenever any country carries OSM signals (ODbL 4.2/4.3): the app
+  shows its text with both links. The fields it covers are listed under `signals` below.
 - `countries` lists every configured country. `enabled: false` (East Asia, for now) has `count: 0`
   and NO file: show it greyed as "coming soon", never fetch it.
 - Category order above is display order.
@@ -32,6 +36,7 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
   "cc": "MY", "name": "Malaysia", "generated": "2026-10-14T03:00:00Z",
   "why": "Google Maps reviews dominate; ...",
   "lookup_lang": "Malay",
+  "signals_as_of": {"lookups": "2026-10-14", "osm": "2026-10-17"},
   "regions": [
     {"id": "38881", "name": "West Coast", "parent": null, "level": 1, "count": 900},
     {"id": "27188", "name": "Penang", "parent": "38881", "level": 2, "count": 310}
@@ -89,7 +94,19 @@ Field rules (the app must cope with every one being empty):
     construction). Say "only on Thai Wikipedia", never "100% of lookups": English readers may be reading
     a parent article instead (Erawan Falls is covered under Erawan National Park).
   - `sitelinks`: Wikidata sitelink count (same number as `score`), present only for spots with an item.
-  - Planned, not yet emitted: `mentions` + `mention_url` (local subreddits), `osm_detail` (OpenStreetMap).
+  - `osm_detail`: integer, food categories only (`dine`, `cafes`, `markets`), present when the spot
+    matched an OpenStreetMap place (same name, within 150 m). Count of detail groups local mappers filled
+    in (see `osm_has`) plus 2 for a name in the local script. A chain brand scores 0.
+  - `osm_has`: list of the groups behind `osm_detail`, from `hours`, `cuisine`, `phone`, `web`, `addr`,
+    `diet`, `service`, `survey`, `local_name`. Show them as words ("opening hours, cuisine").
+  - `osm_chain`: `true` when the OpenStreetMap place carries a `brand` tag. Say "part of a chain".
+  - `osm_detail`, `osm_has`, `osm_chain` and `ulu` (partly computed from them) are OpenStreetMap-derived
+    and available under the ODbL; every other field is not, and OpenStreetMap NEVER changes `name`,
+    `lat`/`lon`, `cat`, `desc` or any other Wikivoyage field (licence: docs/handover-ulu-score.md 3.D).
+  - Planned, not yet emitted: `mentions` + `mention_url` (local subreddits; parked).
+- `signals_as_of` (country level): date each signal was measured, `YYYY-MM-DD`. `lookups` = signal A
+  (an outage reuses the previous week's values and keeps their older date); `osm` = the OpenStreetMap
+  extract date, absent when the country has no OSM signals. Show the date next to the evidence it dates.
 - `lookup_lang` (country level): display name of the local-language Wikipedia behind `local_*`, or `null`
   when the country has none we trust (Singapore: its local reading is in English) and signal A is skipped.
 - `listed_by`: who listed the spot. Always `"wikivoyage"` today.

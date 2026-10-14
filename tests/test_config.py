@@ -21,6 +21,14 @@ class ConfigTest(unittest.TestCase):
                 for pid in conf["dine"] + conf["any"]:
                     self.assertIn(pid, plat["platforms"])
 
+    def test_every_enabled_country_has_an_osm_extract(self):
+        # a missing path silently drops signal D for that country; a typo 404s in CI
+        for c in load("countries.json")["countries"]:
+            if c["enabled"]:
+                with self.subTest(cc=c["cc"]):
+                    self.assertRegex(c.get("osm", ""), r"^(asia|europe|africa|north-america|south-america|"
+                                                       r"central-america|australia-oceania)/[a-z0-9-]+$")
+
     def test_templates(self):
         for pid, p in load("platforms.json")["platforms"].items():
             with self.subTest(pid=pid):

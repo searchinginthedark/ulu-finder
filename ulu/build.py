@@ -16,7 +16,7 @@ import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from . import net, score, signals, wikitext
+from . import net, osm, score, signals, wikitext
 from .classify import CATEGORIES, classify
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -277,6 +277,32 @@ def attach_signals(spots, looks):
         s["listed_by"] = "wikivoyage"
 
 
+A_KEYS = ("local_views", "local_share", "local_only")
+
+
+def previous_lookups(prev):
+    """Signal A values from last week's published file, by stable spot key, and their date.
+    Used only when this week's pageview read fails: stale-and-dated beats silently unscored."""
+    if not prev:
+        return None, None
+    carry = {}
+    for s in prev.get("spots", []):
+        sig = s.get("signals") or {}
+        a = {k: sig[k] for k in A_KEYS if k in sig}
+        if a:
+            carry[osm.spot_key(s)] = a
+    as_of = (prev.get("signals_as_of") or {}).get("lookups") or (prev.get("generated") or "")[:10] or None
+    return carry, as_of
+
+
+def carry_lookups(spots, carry):
+    """Put last week's A values back on the spots that still exist; A keys only, nothing else."""
+    for s in spots:
+        a = carry.get(osm.spot_key(s))
+        if a:
+            s["signals"].update(a)
+
+
 def rank_key(s, facts, order):
     """Most food listings have no Wikidata item, so their own score is 0 and ties are the norm.
     Break them by how well-known the destination is (George Town before Butterworth), then by
@@ -299,7 +325,15 @@ def resolve_platforms(cc, platforms):
     return {"dine": [one(p) for p in conf["dine"]], "any": [one(p) for p in conf["any"]]}, conf.get("why", "")
 
 
-def build_country(c, tree, platforms, cache_dir, log):
+def load_previous(out_dir, cc):
+    path = os.path.join(out_dir, f"{cc}.json") if out_dir else None
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def build_country(c, tree, platforms, cache_dir, log, out_dir=None):
     root, _ = page_id(c["wv"])
     desc = descendants(tree, root)
     if not desc:
@@ -318,8 +352,27 @@ def build_country(c, tree, platforms, cache_dir, log):
     facts = wikidata_facts([s["wd"] for s in spots] + [s["dest_wd"] for s in spots], c.get("lang"))
     enrich(spots, facts)
     lookup = c.get("lookup") or {}
-    looks = signals.lookups([s["wd"] for s in spots], lookup.get("wikis", []), cache_dir, log=log)
+    as_of, carry = {}, None
+    try:
+        looks = signals.lookups([s["wd"] for s in spots], lookup.get("wikis", []), cache_dir, log=log)
+        if lookup.get("wikis"):
+            as_of["lookups"] = now()[:10]
+    except net.FetchError as e:
+        # Fail the SIGNAL, not the country: keep this week's listings and reuse last week's A,
+        # dated. Only a country with no previous file still fails (nothing honest to show).
+        carry, prev_date = previous_lookups(load_previous(out_dir, c["cc"]))
+        if carry is None:
+            raise
+        log(f"{c['cc']}: lookups failed ({e}); reusing {len(carry)} values from {prev_date}")
+        looks = {}
+        if prev_date:
+            as_of["lookups"] = prev_date
     attach_signals(spots, looks)
+    if carry:
+        carry_lookups(spots, carry)
+    osm_date = osm.attach(spots, c["cc"], log=log)
+    if osm_date:
+        as_of["osm"] = osm_date
     score.ulu_scores(spots)
     order ={id(s): i for i, s in enumerate(spots)}
     spots.sort(key=lambda s: rank_key(s, facts, order[id(s)]))
@@ -341,8 +394,15 @@ def build_country(c, tree, platforms, cache_dir, log):
     log(f"{c['cc']}: {len(desc)} articles, {len(spots)} spots, {sum(1 for s in spots if s['img'])} with image, "
         f"{len(facts)} wikidata items, {sum(1 for s in spots if s['ulu'] is not None)} with an Ulu score")
     return {"cc": c["cc"], "name": c["name"], "generated": now(), "why": why,
-            "lookup_lang": lookup.get("label"), "regions": regions,
+            "lookup_lang": lookup.get("label"), "signals_as_of": as_of, "regions": regions,
             "platforms": plats, "spots": [{k: s[k] for k in keep} for s in spots]}
+
+
+OSM_ATTRIBUTION = {
+    "text": "Local map detail © OpenStreetMap contributors, available under the Open Database License (ODbL)",
+    "url": "https://www.openstreetmap.org/copyright",
+    "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+}
 
 
 def now():
@@ -371,7 +431,7 @@ def main(argv=None):
     built, failed = {}, {}
     for c in todo:
         try:
-            built[c["cc"]] = build_country(c, tree, platforms, a.cache or None, log)
+            built[c["cc"]] = build_country(c, tree, platforms, a.cache or None, log, a.out)
         except Exception as e:  # one country failing must not take the others down
             failed[c["cc"]] = f"{type(e).__name__}: {e}"
             log(f"{c['cc']}: FAILED {failed[c['cc']]}")
@@ -385,17 +445,22 @@ def main(argv=None):
              "attribution": {"text": "Listings from Wikivoyage (CC BY-SA 4.0) and Wikidata (CC0)",
                              "url": "https://en.wikivoyage.org/"},
              "categories": [{"id": i, "label": l} for i, l in CATEGORIES], "countries": []}
+    uses_osm = False
     for c in countries:
         path = os.path.join(a.out, f"{c['cc']}.json")
         entry = {"cc": c["cc"], "name": c["name"], "flag": c["flag"], "count": 0, "file": None,
                  "bytes": 0, "enabled": c["enabled"]}
         if c["enabled"] and os.path.exists(path):
             with open(path, encoding="utf-8") as f:
-                entry["count"] = len(json.load(f)["spots"])
+                doc = json.load(f)
+            entry["count"] = len(doc["spots"])
+            uses_osm = uses_osm or "osm" in (doc.get("signals_as_of") or {})
             entry.update(file=f"data/{c['cc']}.json", bytes=os.path.getsize(path))
         elif c["enabled"]:
             entry["enabled"] = False  # never built successfully: show as coming soon, never a broken fetch
         index["countries"].append(entry)
+    if uses_osm:  # ODbL 4.2/4.3 notice, required whenever any published file carries OSM signals
+        index["attribution"]["osm"] = OSM_ATTRIBUTION
     write_json(os.path.join(a.out, "index.json"), index)
     state = {"built": now(), "ok": sorted(built), "failed": failed}
     os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)

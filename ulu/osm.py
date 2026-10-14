@@ -1,0 +1,458 @@
+"""Signal D: how carefully local mappers have recorded a food spot on OpenStreetMap.
+
+    python -m ulu.osm [--only TH,VN] [--dir .cache/osm] [--keep]
+
+Runs in its own weekly workflow (osm.yml), BEFORE the main build, and writes data/osm/<CC>.json.
+The main build only reads those files (attach()), so a slow or failed OSM run can never time out
+or thin out the Wikivoyage build: the previous week's file simply stays, with its own date.
+
+Licence (ODbL, decided 2026-10-14, docs/handover-ulu-score.md 3.D): OpenStreetMap only ADDS
+osm_* signals to spots Ulu already has. It never writes a Wikivoyage field and never adds a spot;
+either would pull the CC BY-SA listings under ODbL share-alike.
+
+Exit 0 = every country written; 1 = some kept last week's file; 2 = none written.
+"""
+import argparse
+import hashlib
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import unicodedata
+import urllib.request
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+
+from . import net
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GEOFABRIK = "https://download.geofabrik.de/{path}-latest.osm.pbf"
+# Temples and parks are mapped bare (73 of 244 matched TH culture spots had any detail tag), so
+# a detail count there measures nothing; signal A covers them. D is a food signal.
+FOOD = ("dine", "cafes", "markets")
+RADIUS = 150.0          # metres; measured on TH: 562 of 960 coord spots matched within it
+SIM = 0.85              # name similarity floor; 30 of 30 sampled matches above it were correct
+CELL = 0.005            # ~550 m grid for the proximity index
+MAX_EXTRACT_AGE = 8     # days: Geofabrik rebuilds daily, so older means its pipeline is stuck
+MAX_FILE_AGE = 35       # days: older than this, attach() drops D rather than show stale detail
+COVERAGE_FLOOR = 0.7    # a fall below 70% of last week's matches is an outage, not a real change
+POI_KEYS = ("amenity", "shop", "tourism", "leisure", "craft")
+
+# Detail groups local mappers fill in. One point per group, however many of its tags are set.
+GROUPS = {
+    "hours": ("opening_hours",),
+    "cuisine": ("cuisine",),
+    "phone": ("phone", "contact:phone", "contact:mobile"),
+    "web": ("website", "contact:website", "url", "contact:facebook", "contact:instagram"),
+    "addr": ("addr:street", "addr:housenumber", "addr:full"),
+    "diet": ("diet:",),        # prefix: diet:vegetarian, diet:halal, ...
+    "service": ("takeaway", "delivery", "outdoor_seating", "reservation", "drive_through"),
+    "survey": ("check_date", "survey:date", "check_date:opening_hours"),
+}
+LOCAL_NAME_POINTS = 2
+CHAIN = ("brand", "brand:wikidata")   # NOT operator: temples and parks carry one too
+
+
+class OsmError(RuntimeError):
+    pass
+
+
+# ---------- pure helpers (tested without pyosmium) ----------
+
+def spot_key(spot):
+    """Stable across rebuilds: the id embeds the category, which the classifier may change."""
+    return hashlib.sha1(f"{spot['src']}|{spot['name']}".encode()).hexdigest()[:12]
+
+
+def norm(s):
+    """Lowercase, punctuation to spaces, accents off LATIN letters only ("Café" == "Cafe").
+    Thai, Khmer, Burmese and Lao vowel signs are combining marks too; stripping them turned
+    ทองพูน into ทองพน and would merge different names."""
+    out, base = [], ""
+    for c in unicodedata.normalize("NFKD", s or ""):
+        if unicodedata.combining(c):
+            if base and ord(base) < 0x250:   # Basic Latin .. Latin Extended-B
+                continue
+        else:
+            base = c
+        out.append(c)
+    s = unicodedata.normalize("NFC", "".join(out)).lower()
+    # not re's [^\w\s]: \w excludes combining marks, so it would turn every Thai vowel into a space
+    s = "".join(c if c.isalnum() or c == "_" or c.isspace() or unicodedata.combining(c) else " " for c in s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def similarity(a, b):
+    """1.0 equal; 0.9 when the shorter (>= 5 chars) is a whole-word part of the longer
+    ("Norden" in "Norden Restaurant Chiang Mai"); else difflib's ratio."""
+    import difflib
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    short, long_ = sorted((a, b), key=len)
+    if len(short) >= 5 and re.search(r"\b" + re.escape(short) + r"\b", long_):
+        return 0.9
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def metres(a_lat, a_lon, b_lat, b_lon):
+    p = math.pi / 180
+    x = (b_lon - a_lon) * p * math.cos((a_lat + b_lat) * p / 2)
+    return 6371000 * math.hypot(x, (b_lat - a_lat) * p)
+
+
+def poi_names(tags):
+    return {norm(v) for k, v in tags.items()
+            if k == "name" or k.startswith("name:") or k in ("alt_name", "old_name", "official_name", "short_name")} - {""}
+
+
+def has_local_name(tags, lang):
+    """A name in the local language: an explicit name:<lang>, or a name written in non-ASCII letters
+    (Thai script, Vietnamese diacritics). Constant across a pool where every name is local (Japan),
+    so it moves no percentile there."""
+    if lang and tags.get(f"name:{lang}"):
+        return True
+    return any(ord(c) > 127 and c.isalpha() for c in tags.get("name", ""))
+
+
+def detail(tags, lang):
+    """(osm_detail, osm_has, chain). A chain is mapped from brand data, not by locals: it scores 0."""
+    if any(tags.get(k) for k in CHAIN):
+        return 0, [], True
+    has = []
+    for group, keys in GROUPS.items():
+        for k in keys:
+            if (k.endswith(":") and any(t.startswith(k) for t in tags)) or tags.get(k):
+                has.append(group)
+                break
+    points = len(has)
+    if has_local_name(tags, lang):
+        has.append("local_name")
+        points += LOCAL_NAME_POINTS
+    return points, has, False
+
+
+def match(spots, pois, radius=RADIUS, floor=SIM):
+    """{spot_key: poi} for food spots with coords. Best candidate by (similarity, -distance)."""
+    grid = defaultdict(list)
+    for p in pois:
+        grid[(int(p["lat"] // CELL), int(p["lon"] // CELL))].append(p)
+    out = {}
+    for s in spots:
+        if s.get("cat") not in FOOD or s.get("lat") is None or s.get("lon") is None:
+            continue
+        names = {n for n in (norm(s.get("name")), norm(s.get("local"))) if n}
+        gy, gx = int(s["lat"] // CELL), int(s["lon"] // CELL)
+        best = None
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                for p in grid.get((gy + dy, gx + dx), ()):
+                    d = metres(s["lat"], s["lon"], p["lat"], p["lon"])
+                    if d > radius:
+                        continue
+                    sim = max((similarity(a, b) for a in names for b in p["names"]), default=0.0)
+                    if sim >= floor and (best is None or (sim, -d) > best[0]):
+                        best = ((sim, -d), p)
+        if best:
+            out[spot_key(s)] = best[1]
+    return out
+
+
+def accept(new_matched, prev_matched, food_spots=0):
+    """Coverage guard: a sudden collapse is an outage (a truncated extract, a renamed tag), not a
+    week in which half the restaurants closed. Small pools are too noisy to judge. Zero matches
+    among many food spots means the extract does not cover the country at all (TH matched ~56%)."""
+    if new_matched == 0 and food_spots >= 50:
+        return False
+    if prev_matched is None or prev_matched < 20:
+        return True
+    return new_matched >= COVERAGE_FLOOR * prev_matched
+
+
+def fresh(as_of, now=None, max_days=MAX_EXTRACT_AGE):
+    now = now or datetime.now(timezone.utc)
+    return as_of is not None and now - as_of <= timedelta(days=max_days)
+
+
+def parse_md5(text):
+    m = re.match(r"\s*([0-9a-fA-F]{32})\b", text or "")
+    if not m:
+        raise OsmError(f"unreadable md5 file: {text[:60]!r}")
+    return m.group(1).lower()
+
+
+# ---------- the build reads this (no pyosmium needed) ----------
+
+def attach(spots, cc, root=ROOT, today=None, log=print):
+    """Add osm_* signals from data/osm/<CC>.json. Returns the extract date, or None when there is
+    no usable file. A missing or too-old file means the build simply has no D this week; it never
+    reads as 'matched nothing', and it never touches any other field."""
+    path = os.path.join(root, "data", "osm", f"{cc}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    as_of = doc.get("as_of")
+    today = today or datetime.now(timezone.utc).date()
+    try:
+        age = (today - datetime.strptime(as_of, "%Y-%m-%d").date()).days
+    except (TypeError, ValueError):
+        log(f"  osm: {cc} file has no valid as_of; not used")
+        return None
+    if age > MAX_FILE_AGE:
+        log(f"  osm: {cc} extract is {age} days old (limit {MAX_FILE_AGE}); not used")
+        return None
+    entries = doc.get("spots") or {}
+    n = 0
+    for s in spots:
+        if s.get("cat") not in FOOD:
+            continue
+        e = entries.get(spot_key(s))
+        if not e:
+            continue
+        sig = s.setdefault("signals", {})
+        sig["osm_detail"] = e["d"]
+        if e.get("has"):
+            sig["osm_has"] = list(e["has"])
+        if e.get("chain"):
+            sig["osm_chain"] = True
+        n += 1
+    log(f"  osm: {cc} {n} spots carry OSM detail (extract {as_of}, {age} days old)")
+    return as_of
+
+
+# ---------- download, verify, extract (osm.yml only) ----------
+
+def download(url, dest, tries=3):
+    last = None
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": net.UA})
+            with urllib.request.urlopen(req, timeout=120) as r, open(dest + ".part", "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+                modified = r.headers.get("Last-Modified")
+            os.replace(dest + ".part", dest)
+            return modified
+        except OSError as e:
+            last = e
+            time.sleep(30 * (attempt + 1))
+    raise OsmError(f"download failed: {url}: {last}")
+
+
+def fetch_text(url):
+    req = urllib.request.Request(url, headers={"User-Agent": net.UA})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def file_md5(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def extract_date(path, last_modified=None):
+    """The data's own timestamp from the PBF header; the HTTP Last-Modified only as a fallback.
+    Neither -> None, which fresh() rejects: an unknown age is not a fresh one."""
+    import osmium
+    r = osmium.io.Reader(path, osmium.osm.osm_entity_bits.NOTHING)
+    try:
+        ts = r.header().get("osmosis_replication_timestamp")
+    finally:
+        r.close()
+    for raw, fmt in ((ts, "%Y-%m-%dT%H:%M:%SZ"), (last_modified, "%a, %d %b %Y %H:%M:%S GMT")):
+        if raw:
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+    return None
+
+
+def prefilter(src, log):
+    """Shrink the extract to POI-tagged objects (and the nodes their ways need) with osmium-tool,
+    when it is installed (osm.yml installs it). Japan is 2.4 GB; pyosmium on the whole file needs
+    a node-location index the runner's memory may not hold."""
+    tool = shutil.which("osmium")
+    if not tool:
+        log("  osmium-tool not on PATH; reading the full extract")
+        return src
+    out = src.replace(".osm.pbf", ".pois.osm.pbf")
+    subprocess.run([tool, "tags-filter", src] + [f"nwr/{k}" for k in POI_KEYS] + ["-o", out, "--overwrite"],
+                   check=True)
+    return out
+
+
+def read_pois(path, spots):
+    """Named POIs within one grid cell of any food spot with coords (keeps memory small)."""
+    import osmium
+
+    cells = set()
+    for s in spots:
+        if s.get("cat") in FOOD and s.get("lat") is not None and s.get("lon") is not None:
+            gy, gx = int(s["lat"] // CELL), int(s["lon"] // CELL)
+            cells.update((gy + dy, gx + dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+
+    def keep(tags, lat, lon):
+        if (int(lat // CELL), int(lon // CELL)) not in cells:
+            return None
+        t = {tag.k: tag.v for tag in tags}
+        if not any(k in t for k in POI_KEYS):
+            return None
+        names = poi_names(t)
+        if not names:
+            return None
+        return {"lat": lat, "lon": lon, "names": names, "tags": t}
+
+    class H(osmium.SimpleHandler):
+        def __init__(self):
+            super().__init__()
+            self.out = []
+
+        def node(self, n):
+            if n.tags and n.location.valid():
+                p = keep(n.tags, n.location.lat, n.location.lon)
+                if p:
+                    self.out.append(p)
+
+        def way(self, w):
+            if not w.tags:
+                return
+            pts = [(nd.lat, nd.lon) for nd in w.nodes if nd.location.valid()]
+            if pts:
+                p = keep(w.tags, sum(a for a, _ in pts) / len(pts), sum(b for _, b in pts) / len(pts))
+                if p:
+                    self.out.append(p)
+
+    h = H()
+    h.apply_file(path, locations=True, idx="flex_mem")
+    return h.out
+
+
+def build_entries(spots, pois, lang):
+    entries = {}
+    for key, p in match(spots, pois).items():
+        d, has, chain = detail(p["tags"], lang)
+        e = {"d": d}
+        if has:
+            e["has"] = has
+        if chain:
+            e["chain"] = True
+        entries[key] = e
+    return entries
+
+
+def load_json(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    os.replace(tmp, path)
+
+
+def run_extract(osm_path, countries, workdir, keep_file, log):
+    """Download + verify one Geofabrik extract and write data/osm/<CC>.json for each country on it.
+    Returns {cc: error} for the countries that kept last week's file."""
+    url = GEOFABRIK.format(path=osm_path)
+    pbf = os.path.join(workdir, osm_path.replace("/", "_") + ".osm.pbf")
+    os.makedirs(workdir, exist_ok=True)
+    t0 = time.time()
+    want = parse_md5(fetch_text(url + ".md5"))
+    have = file_md5(pbf) if os.path.exists(pbf) else None
+    modified = None
+    if have != want:
+        modified = download(url, pbf)
+        have = file_md5(pbf)
+        if have != want:
+            # Geofabrik may publish the next daily file between our md5 read and the download.
+            want = parse_md5(fetch_text(url + ".md5"))
+    if have != want:
+        raise OsmError(f"{osm_path}: md5 mismatch (got {have}, Geofabrik says {want})")
+    size = os.path.getsize(pbf)
+    log(f"{osm_path}: {size / 1e6:.0f} MB verified in {time.time() - t0:.0f}s")
+    as_of = extract_date(pbf, modified)
+    if not fresh(as_of):
+        raise OsmError(f"{osm_path}: extract dated {as_of} is older than {MAX_EXTRACT_AGE} days or undated")
+    t1 = time.time()
+    src = prefilter(pbf, log)
+    by_cc = {}
+    for c in countries:
+        doc = load_json(os.path.join(ROOT, "public", "data", f"{c['cc']}.json"))
+        by_cc[c["cc"]] = doc["spots"] if doc else []
+    pois = read_pois(src, [s for v in by_cc.values() for s in v])
+    log(f"{osm_path}: {len(pois)} candidate POIs in {time.time() - t1:.0f}s")
+    failed = {}
+    for c in countries:
+        cc, spots = c["cc"], by_cc[c["cc"]]
+        out = os.path.join(ROOT, "data", "osm", f"{cc}.json")
+        if not spots:
+            failed[cc] = "no published spots to match"
+            continue
+        entries = build_entries(spots, pois, c.get("lang"))
+        prev = load_json(out)
+        prev_n = prev.get("matched") if prev else None
+        food = sum(1 for s in spots if s.get("cat") in FOOD and s.get("lat") is not None)
+        if not accept(len(entries), prev_n, food):
+            failed[cc] = f"matched {len(entries)} vs {prev_n} last time: kept last week's file"
+            log(f"{cc}: COVERAGE GUARD {failed[cc]}")
+            continue
+        write_json(out, {"cc": cc, "as_of": as_of.strftime("%Y-%m-%d"), "source": url,
+                         "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                         "food_spots_with_coords": food, "matched": len(entries), "spots": entries})
+        log(f"{cc}: matched {len(entries)} of {food} food spots with coords "
+            f"({sum(1 for e in entries.values() if e.get('chain'))} chains)")
+    if not keep_file:
+        for p in {pbf, src}:
+            if os.path.exists(p):
+                os.remove(p)
+    return failed
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--only", default="")
+    ap.add_argument("--dir", default=os.path.join(ROOT, ".cache", "osm"))
+    ap.add_argument("--keep", action="store_true", help="keep downloaded extracts (local testing)")
+    a = ap.parse_args(argv)
+    log = lambda m: print(m, flush=True)
+    with open(os.path.join(ROOT, "config", "countries.json"), encoding="utf-8") as f:
+        countries = json.load(f)["countries"]
+    only = {x.strip().upper() for x in a.only.split(",") if x.strip()}
+    groups = defaultdict(list)
+    for c in countries:
+        if c.get("enabled") and c.get("osm") and (not only or c["cc"] in only):
+            groups[c["osm"]].append(c)
+    ok, failed = [], {}
+    for osm_path, members in groups.items():
+        try:
+            bad = run_extract(osm_path, members, a.dir, a.keep, log)
+        except Exception as e:  # one extract failing must not take the others down
+            bad = {c["cc"]: f"{type(e).__name__}: {e}" for c in members}
+            log(f"{osm_path}: FAILED {type(e).__name__}: {e}")
+        failed.update(bad)
+        ok += [c["cc"] for c in members if c["cc"] not in bad]
+    write_json(os.path.join(ROOT, "data", "osm", "_state.json"),
+               {"built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "ok": sorted(ok), "failed": failed})
+    if not ok:
+        log("nothing written; every country keeps its previous file")
+        return 2
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,63 @@
+name: osm
+run-name: osm (${{ github.event_name == 'schedule' && 'gha-cron' || format('manual {0}', inputs.only || 'all') }})
+
+# Signal D. Runs a day BEFORE collect.yml, in its own job, so a slow Geofabrik download can never
+# time out the Wikivoyage build. It only writes data/osm/<CC>.json; collect.yml reads those. A
+# failed country keeps last week's file (ulu/osm.py), and the build stops using a file once it is
+# more than 35 days old.
+on:
+  schedule:
+    - cron: "17 19 * * 6"   # Saturday 19:17 UTC = Sunday 03:17 SGT
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated country codes (blank = all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect   # shared with collect.yml: both push to main
+  cancel-in-progress: false
+
+jobs:
+  osm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # unmeasured until the first run: ~8.3 GB of extracts in total
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install osmium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osmium-tool
+          python -m pip install --quiet osmium
+          osmium --version | head -1
+      - name: Tests
+        run: python -m unittest discover -s tests -t .
+      - name: Match
+        # exit 1 = some countries kept last week's file: still commit the rest.
+        # exit 2 = nothing written: fail the run.
+        run: |
+          set +e
+          df -h . | tail -1
+          /usr/bin/time -v python -m ulu.osm --only "${{ inputs.only }}" 2> time.log
+          rc=$?
+          grep -E "Elapsed|Maximum resident" time.log
+          echo "osm rc=$rc"
+          cat data/osm/_state.json
+          if [ "$rc" = "2" ]; then exit 1; fi
+          exit 0
+      - name: Commit
+        run: |
+          git config user.name "ulu-collector"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/osm
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "data: weekly osm $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin HEAD:main
