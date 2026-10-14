@@ -135,6 +135,19 @@ fame is the thing we are trying not to over-reward.
     was not measured.
   - Most common detail tags on matches: opening_hours, website, addr:street, cuisine,
     addr:housenumber, phone, wheelchair.
+- BUILT 2026-10-14 (3b1eecd, 2b2b666). The metric is NOT a detail count: the first build ranked
+  "Oasis Bar & Restaurant" ("meeting place of Western expats") #1 Most local in TH. On the 330
+  matched TH food spots, with each listing's own description as a rough local/foreign label,
+  detail tags ran the wrong way (foreign 1.89 vs local 1.16) while a Thai-language name separated
+  them (59% local vs 15% foreign). So the signal is `osm_local` (1 = named in the local language,
+  0 otherwise or a chain brand). Foreign places in the TH top 30 fell from 8 to 5. A binary signal
+  ties (TH dine top = 86 for many); ties fall back to Famous order.
+  - A locality signal with ONE value across a (country, category) pool is ignored there
+    (score.py), so in Japan/Korea/China, where every OSM name is local script, D adds nothing.
+    D therefore helps Latin-tourist vs local-script countries most: TH, VN, KH, LA, MM.
+    MY/ID/PH/SG names are mostly ASCII in both cases: expect little from D there.
+  - CI (TH, 2026-10-14): 329 MB downloaded + md5 in 25 s, extraction 24 s, total 51 s, peak RSS
+    2.2 GB; 330 of 629 food spots with coords matched (52%), 4 chains.
 - RELIABILITY (required in the build, not optional):
   - Source = Geofabrik country extracts only; never public Overpass (measured: 32 failures in an
     hour on 3 servers, then a hard stop). Download in CI, verify against Geofabrik's published
