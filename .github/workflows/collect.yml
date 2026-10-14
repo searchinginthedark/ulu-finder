@@ -1,0 +1,47 @@
+name: collect
+run-name: collect (${{ github.event_name == 'schedule' && 'gha-cron' || 'manual' }})
+
+# Wikivoyage listings change slowly; weekly is plenty and keeps us polite to Wikimedia.
+on:
+  schedule:
+    - cron: "17 19 * * 0"   # Sunday 19:17 UTC = Monday 03:17 SGT
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests
+        run: python -m unittest discover -s tests -t .
+      - name: Build
+        # exit 1 = some countries failed and kept last week's file: still commit the rest.
+        # exit 2 = nothing built: fail the run, write nothing.
+        run: |
+          set +e
+          python -m ulu.build
+          rc=$?
+          echo "build rc=$rc"
+          cat data/state.json
+          if [ "$rc" = "2" ]; then exit 1; fi
+          exit 0
+      - name: Commit
+        run: |
+          git config user.name "ulu-collector"
+          git config user.email "actions@users.noreply.github.com"
+          git add public/data data/state.json
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "data: weekly collect $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin HEAD:main

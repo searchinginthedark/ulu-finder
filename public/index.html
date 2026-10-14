@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b4f">
+<meta name="color-scheme" content="light dark">
+<title>Ulu</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header id="hdr" class="hdr">
+  <div class="hrow">
+    <button id="countryBtn" class="btn-country" type="button" aria-haspopup="dialog">
+      <span id="countryFlag" aria-hidden="true"></span>
+      <span id="countryName">Country</span>
+    </button>
+    <input id="search" class="search" type="search" placeholder="Search spots" aria-label="Search spots" autocomplete="off" enterkeyhint="search">
+    <button id="savedBtn" class="btn-saved" type="button" aria-pressed="false">Saved <span id="savedCount">0</span></button>
+  </div>
+  <div id="filters">
+    <div id="r1Row" class="tabs" role="tablist" aria-label="Region"></div>
+    <div id="r2Row" class="tabs tabs-sub" role="tablist" aria-label="Province" hidden></div>
+    <div id="catRow" class="tabs" role="tablist" aria-label="Category"></div>
+  </div>
+</header>
+
+<main id="main" class="main">
+  <div id="toolbar" class="toolbar">
+    <div class="seg" role="group" aria-label="Sort">
+      <button id="sortTop" class="seg-btn" type="button" aria-pressed="true">Top</button>
+      <button id="sortNear" class="seg-btn" type="button" aria-pressed="false">Nearby</button>
+    </div>
+    <button id="srcBtn" class="link-btn" type="button">Local sources</button>
+  </div>
+  <p id="note" class="note" role="status" hidden></p>
+  <p id="status" class="status" role="status"></p>
+  <div id="feed" class="feed"></div>
+  <div id="sentinel" class="sentinel" aria-hidden="true"></div>
+  <footer class="foot">
+    <p id="attrib"></p>
+    <p id="refreshed"></p>
+  </footer>
+</main>
+
+<div id="sheet" class="sheet" hidden>
+  <div id="sheetBackdrop" class="sheet-backdrop"></div>
+  <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head">
+      <h2 id="sheetTitle" class="sheet-title"></h2>
+      <button id="sheetClose" class="sheet-close" type="button" aria-label="Close">Close</button>
+    </div>
+    <div id="sheetBody" class="sheet-body"></div>
+  </div>
+</div>
+</body>
+</html>

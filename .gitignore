@@ -1,0 +1,9 @@
+.cache/
+.planning/
+CLAUDE.md
+memory/
+__pycache__/
+*.tmp
+.vercel/
+.env*
+.cache-build.log
