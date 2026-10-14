@@ -31,6 +31,7 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
 {
   "cc": "MY", "name": "Malaysia", "generated": "2026-10-14T03:00:00Z",
   "why": "Google Maps reviews dominate; ...",
+  "lookup_lang": "Malay",
   "regions": [
     {"id": "38881", "name": "West Coast", "parent": null, "level": 1, "count": 900},
     {"id": "27188", "name": "Penang", "parent": "38881", "level": 2, "count": 310}
@@ -52,6 +53,9 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
       "hours": "", "price": "", "addr": "Lebuh Dickens",
       "img": "https://commons.wikimedia.org/wiki/Special:FilePath/X.jpg?width=640",
       "score": 12,
+      "ulu": 74,
+      "signals": {"local_share": 0.82, "local_views": 12400, "sitelinks": 12},
+      "listed_by": "wikivoyage",
       "src": "https://en.wikivoyage.org/wiki/George_Town_(Malaysia)#Eat"
     }
   ]
@@ -71,6 +75,22 @@ Field rules (the app must cope with every one being empty):
 - `img`: `null` for most food listings. Never hotlink anything but `commons.wikimedia.org`.
 - `score`: popularity, higher first. Wikidata sitelink count where the listing is on Wikidata, else 0.
   Ties keep collector order (Wikivoyage's own order). Spots arrive pre-sorted by score desc.
+- `ulu`: the Ulu score, 0-100, or `null` when the spot has no locality evidence (no signal A/B/D).
+  Fame (`sitelinks`) alone never produces a score. Percentiles are per category within the country,
+  so 74 means "more local-skewed than most Sights in Malaysia", not an absolute rating.
+  Spots are NOT sorted by it; the app sorts ("Most local" = ulu desc, nulls last).
+- `signals`: only what was measured; an ABSENT key means no data, never zero. Show measurements, never
+  a verdict ("82% of Wikipedia lookups are in Malay", not "locals love this").
+  - `local_views`: human pageviews of the spot's article on the `lookup_lang` Wikipedia, last 12 full months.
+  - `local_share`: local_views / (local + English Wikipedia views), 0-1. Omitted under 300 views/yr (noise).
+  - `local_only`: `true` when the spot has NO English Wikipedia article (so `local_share` is 1.0 by
+    construction). Say "only on Thai Wikipedia", never "100% of lookups": English readers may be reading
+    a parent article instead (Erawan Falls is covered under Erawan National Park).
+  - `sitelinks`: Wikidata sitelink count (same number as `score`), present only for spots with an item.
+  - Planned, not yet emitted: `mentions` + `mention_url` (local subreddits), `osm_detail` (OpenStreetMap).
+- `lookup_lang` (country level): display name of the local-language Wikipedia behind `local_*`, or `null`
+  when the country has none we trust (Singapore: its local reading is in English) and signal A is skipped.
+- `listed_by`: who listed the spot. Always `"wikivoyage"` today.
 - `desc`: plain text, wiki markup stripped, at most 400 chars.
 - `src`: the Wikivoyage section the listing came from. CC BY-SA requires a visible link to it.
 

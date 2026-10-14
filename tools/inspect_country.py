@@ -29,6 +29,13 @@ def main():
     orphans = [s for s in spots if s["r1"] not in names]
     print("spots whose r1 is not a listed region:", len(orphans))
     print("top 12:", [(s["name"], s["cat"], s["score"]) for s in spots[:12]])
+    scored = [s for s in spots if s.get("ulu") is not None]
+    print(f"\nUlu score: {len(scored)} of {len(spots)} spots; lookup language {d.get('lookup_lang')}")
+    print("most local 15 (ulu | local share | local views | sitelinks):")
+    for s in sorted(scored, key=lambda s: -s["ulu"])[:15]:
+        g = s["signals"]
+        print(f"   {s['ulu']:3} | {g.get('local_share', '-'):>4} | {g.get('local_views', '-'):>7} | "
+              f"{g.get('sitelinks', '-'):>3} | {s['cat']:10} | {s['name'][:40]} ({s['dest'][:18]})")
     rnd = random.Random(1)
     for cat in sorted({s["cat"] for s in spots}):
         pool = [s for s in spots if s["cat"] == cat]

@@ -16,7 +16,7 @@ import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from . import net, wikitext
+from . import net, score, signals, wikitext
 from .classify import CATEGORIES, classify
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -246,7 +246,7 @@ def has_non_ascii_letters(s):
 
 def enrich(spots, facts):
     for s in spots:
-        f = facts.get(s.pop("wd", ""), {})
+        f = facts.get(s["wd"], {})
         s["score"] = f.get("links", 0)
         if not s["img"] and f.get("img"):
             s["img"] = f["img"]
@@ -258,6 +258,23 @@ def enrich(spots, facts):
             s["local"] = alt
         else:
             s["local"] = ""
+
+
+def attach_signals(spots, looks):
+    """spot["signals"] holds only what was measured; an absent key means 'no data', never 0."""
+    for s in spots:
+        sig = {}
+        if s["wd"]:
+            sig["sitelinks"] = s["score"]
+        a = looks.get(s["wd"]) if s["wd"] else None
+        if a:
+            sig["local_views"] = a["local_views"]
+            if a["local_share"] is not None:
+                sig["local_share"] = a["local_share"]
+            if a.get("local_only"):
+                sig["local_only"] = True
+        s["signals"] = sig
+        s["listed_by"] = "wikivoyage"
 
 
 def rank_key(s, facts, order):
@@ -300,7 +317,11 @@ def build_country(c, tree, platforms, cache_dir, log):
     spots = dedupe(spots)
     facts = wikidata_facts([s["wd"] for s in spots] + [s["dest_wd"] for s in spots], c.get("lang"))
     enrich(spots, facts)
-    order = {id(s): i for i, s in enumerate(spots)}
+    lookup = c.get("lookup") or {}
+    looks = signals.lookups([s["wd"] for s in spots], lookup.get("wikis", []), cache_dir, log=log)
+    attach_signals(spots, looks)
+    score.ulu_scores(spots)
+    order ={id(s): i for i, s in enumerate(spots)}
     spots.sort(key=lambda s: rank_key(s, facts, order[id(s)]))
 
     counts = defaultdict(int)
@@ -316,10 +337,11 @@ def build_country(c, tree, platforms, cache_dir, log):
                             "level": len(desc[pid]), "count": counts[pid]})
     plats, why = resolve_platforms(c["cc"], platforms)
     keep = ("id", "name", "local", "cat", "r1", "r2", "dest", "up", "lat", "lon", "desc",
-            "hours", "price", "addr", "img", "score", "src")
+            "hours", "price", "addr", "img", "score", "ulu", "signals", "listed_by", "src")
     log(f"{c['cc']}: {len(desc)} articles, {len(spots)} spots, {sum(1 for s in spots if s['img'])} with image, "
-        f"{len(facts)} wikidata items")
-    return {"cc": c["cc"], "name": c["name"], "generated": now(), "why": why, "regions": regions,
+        f"{len(facts)} wikidata items, {sum(1 for s in spots if s['ulu'] is not None)} with an Ulu score")
+    return {"cc": c["cc"], "name": c["name"], "generated": now(), "why": why,
+            "lookup_lang": lookup.get("label"), "regions": regions,
             "platforms": plats, "spots": [{k: s[k] for k in keep} for s in spots]}
 
 
