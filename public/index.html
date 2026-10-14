@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f6b4f">
 <meta name="color-scheme" content="light dark">
+<!-- CSP lives in vercel.json. A header-only change keeps this file's ETag, so browsers
+     revalidate to 304 and keep the OLD policy: change a byte here whenever the CSP changes. -->
+<meta name="ulu-csp" content="2">
+
 <title>Ulu</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
