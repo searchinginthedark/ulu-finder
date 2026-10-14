@@ -148,6 +148,14 @@ fame is the thing we are trying not to over-reward.
     MY/ID/PH/SG names are mostly ASCII in both cases: expect little from D there.
   - CI (TH, 2026-10-14): 329 MB downloaded + md5 in 25 s, extraction 24 s, total 51 s, peak RSS
     2.2 GB; 330 of 629 food spots with coords matched (52%), 4 chains.
+  - CI all 17 (run 38589339996): 21 min wall, peak RSS 2.2 GB (Japan 2.5 GB file included), 13 GB
+    disk free at start. China's extract DOES cover HK (33/78 matched) and MO (9/19). Low matches
+    where OSM names are local script and Wikivoyage's English: CN 56/1266, KR 235/2376.
+  - PER-COUNTRY SWITCH `osm_score` (countries.json), decided by tools/osm_check.py: ON for TH VN
+    MY JP KR TW CN (local-sounding food outscores foreign-sounding). OFF: PH KH LA MM ran BACKWARDS
+    (PH foreign 53 vs local 49, top-30 foreign 13% vs 6% base), ID SG had almost no local-language
+    names, BN HK MO TL too few labelled spots. Data is still collected everywhere; re-run the tool
+    before flipping a country. Ulu-scored spots 3,520 -> 5,015 (f734587, live 2026-10-15).
 - RELIABILITY (required in the build, not optional):
   - Source = Geofabrik country extracts only; never public Overpass (measured: 32 failures in an
     hour on 3 servers, then a hard stop). Download in CI, verify against Geofabrik's published
