@@ -12,11 +12,11 @@
     {"cc": "MM", "name": "Myanmar",     "wv": "Myanmar",     "lang": "my", "flag": "🇲🇲", "lookup": {"wikis": ["my"], "label": "Burmese"}, "enabled": true},
     {"cc": "BN", "name": "Brunei",      "wv": "Brunei",      "lang": "ms", "flag": "🇧🇳", "lookup": {"wikis": ["ms"], "label": "Malay"}, "enabled": true},
     {"cc": "TL", "name": "Timor-Leste", "wv": "East Timor",  "lang": "tet", "flag": "🇹🇱", "lookup": {"wikis": ["tet"], "label": "Tetum"}, "enabled": true},
-    {"cc": "JP", "name": "Japan",       "wv": "Japan",       "lang": "ja", "flag": "🇯🇵", "lookup": {"wikis": ["ja"], "label": "Japanese"}, "enabled": false},
-    {"cc": "KR", "name": "South Korea", "wv": "South Korea", "lang": "ko", "flag": "🇰🇷", "lookup": {"wikis": ["ko"], "label": "Korean"}, "enabled": false},
-    {"cc": "CN", "name": "China",       "wv": "China",       "lang": "zh", "flag": "🇨🇳", "enabled": false},
-    {"cc": "TW", "name": "Taiwan",      "wv": "Taiwan",      "lang": "zh-tw", "flag": "🇹🇼", "enabled": false},
-    {"cc": "HK", "name": "Hong Kong",   "wv": "Hong Kong",   "lang": "zh-hk", "flag": "🇭🇰", "enabled": false},
-    {"cc": "MO", "name": "Macau",       "wv": "Macau",       "lang": "zh-hk", "flag": "🇲🇴", "enabled": false}
+    {"cc": "JP", "name": "Japan",       "wv": "Japan",       "lang": "ja", "flag": "🇯🇵", "lookup": {"wikis": ["ja"], "label": "Japanese"}, "enabled": true},
+    {"cc": "KR", "name": "South Korea", "wv": "South Korea", "lang": "ko", "flag": "🇰🇷", "lookup": {"wikis": ["ko"], "label": "Korean"}, "enabled": true},
+    {"cc": "CN", "name": "China",       "wv": "China",       "lang": "zh", "flag": "🇨🇳", "enabled": true},
+    {"cc": "TW", "name": "Taiwan",      "wv": "Taiwan",      "lang": "zh-tw", "flag": "🇹🇼", "enabled": true},
+    {"cc": "HK", "name": "Hong Kong",   "wv": "Hong Kong",   "lang": "zh-hk", "flag": "🇭🇰", "enabled": true},
+    {"cc": "MO", "name": "Macau",       "wv": "Macau",       "lang": "zh-hk", "flag": "🇲🇴", "enabled": true}
   ]
 }

@@ -17,7 +17,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # signal A pageviews add ~20 min (serial, measured 2026-10-14)
+    timeout-minutes: 90  # SEA ~23 min + East Asia 28.6 min uncached (measured 2026-10-14); headroom for 429 retries
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
