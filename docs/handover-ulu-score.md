@@ -78,8 +78,19 @@ platform's own page, where the rating lives.
   name + city/area co-occurrence, or a minimum name length, and add fixtures for misfires.
 - Auth: Reddit OAuth app (free), 100 queries/min. Credentials go in a GitHub Actions secret;
   `collect.yml` must skip B cleanly when the secret is missing (skipped, never failed).
-- OPEN: re-read Reddit's Data API terms for non-commercial use before building. We store only
-  counts and thread links, never comment text.
+- PARKED 2026-10-14 (user ruling) after reading the terms (Data API Terms rev. 2026-07-20,
+  Developer Terms rev. 2026-03-24, Responsible Builder Policy). Blockers, by section:
+  - RBP intro: explicit approval is required BEFORE any API access; a free app + secret is no
+    longer enough. Non-Devvit non-commercial use means filing a ticket with the exact use case.
+  - RBP "Other Prohibited Practices": bans non-commercial "mining" without written approval;
+    a mention-count corpus may fall under it, so only Reddit's approval settles it.
+  - Developer 3.3: deleted/removed posts must be deleted from our data too. Weekly commits keep
+    thread links in git history, so publish counts only, no `mention_url`.
+  - Developer 3.1/6 + Data API 6: derived data (our counts) must be deleted on revocation; keep
+    B removable by one rebuild. Developer 4.1: Ulu must stay unmonetised while B is in it.
+  - Data API 2.9: rate limits at Reddit's discretion; the 100/min figure above is 2023-era and
+    unconfirmed. Read the rate-limit response headers, never hardcode a number.
+  - The connected Reddit MCP is Reddit data access too; same approval question.
 - A Reddit MCP is connected in Claude sessions (`mcp__reddit__*`); use it to explore subs and
   test matching, but the weekly build cannot depend on it.
 
@@ -93,11 +104,20 @@ fame is the thing we are trying not to over-reward.
   name. Large countries (TH, ID, PH) are heavy; Overpass fair use discourages that at weekly scale.
 - Option 2: Geofabrik country extracts (keyless .pbf) filtered locally. Needs osmium or pyosmium
   in the GHA job. Probably the right answer; decide after measuring one country.
-- Use: (a) match existing spots to OSM nodes (name + 150 m) and count local detail tags
-  (`opening_hours`, `cuisine`, `name:th`...) as "mapped carefully by locals"; (b) later, add
-  OSM-only spots as a "Local eats" layer.
-- LICENCE: ODbL. Attribution "© OpenStreetMap contributors" is required, and publishing a
-  derived database triggers share-alike. Decide this BEFORE shipping D.
+- Use: match existing spots to OSM nodes (name + 150 m) and count local detail tags
+  (`opening_hours`, `cuisine`, `name:th`...) as "mapped carefully by locals".
+- LICENCE: DECIDED 2026-10-14 (user approved). Score only, as an ODbL "Collective Database":
+  - OSM only ADDS `osm_detail` to spots Ulu already has. It NEVER writes a Wikivoyage field
+    (name, coords, category, text). Enforce with a test. Mixing a property pulls the CC BY-SA
+    listings under ODbL share-alike, which ODbL 4.4(d) forbids.
+  - NO OSM-only "Local eats" layer: per the OSMF Horizontal Map Layers guideline, adding
+    restaurants "not already listed" makes the whole restaurant type share-alike.
+  - `osm_detail` and `ulu` (partly OSM-derived; its other inputs are CC0) are labelled ODbL in
+    `index.json` attribution, `docs/contract.md` and the app credits: "© OpenStreetMap
+    contributors" linking https://www.openstreetmap.org/copyright.
+  - Weekly per-country extraction is "Substantial" under the OSMF guideline, so ODbL fully applies.
+  - Reasoning and clause list: memory archive 2026-10-14-1558.md.
+- First step: measure the TH match rate before any contract or UI change.
 
 ## 4. Score and transparency
 
