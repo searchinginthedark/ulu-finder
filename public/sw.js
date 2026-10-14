@@ -1,6 +1,4 @@
-const CACHE = 'ulu-v1';
-const IMG_CACHE = 'ulu-img-v1';
-const IMG_MAX = 200;
+const CACHE = 'ulu-v2';
 const ASSETS = [
   './',
   'app.js',
@@ -22,7 +20,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== IMG_CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -44,34 +42,13 @@ async function networkFirst(req, fallbackKey) {
   }
 }
 
-async function trimImages(cache) {
-  const keys = await cache.keys();
-  const extra = keys.length - IMG_MAX;
-  for (let i = 0; i < extra; i++) await cache.delete(keys[i]);
-}
-
-async function imageCacheFirst(req) {
-  const cache = await caches.open(IMG_CACHE);
-  const hit = await cache.match(req);
-  if (hit) return hit;
-  const res = await fetch(req);
-  // Opaque (no-cors) responses have ok === false and status 0; cache them too.
-  if (res && (res.ok || res.type === 'opaque')) {
-    await cache.put(req, res.clone()).catch(() => {});
-    await trimImages(cache);
-  }
-  return res;
-}
-
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  if (url.hostname === 'commons.wikimedia.org' || url.hostname === 'upload.wikimedia.org') {
-    e.respondWith(imageCacheFirst(req));
-    return;
-  }
+  // Cross-origin (Commons photos) is left to the browser: a fetch made BY the worker is bound
+  // by the CSP connect-src 'self' and was blocked live, and opaque cache entries bloat quota.
   if (url.origin !== self.location.origin) return;
 
   if (req.mode === 'navigate') {
