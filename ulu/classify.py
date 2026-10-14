@@ -37,6 +37,9 @@ NOT_NATURE = _rx([r"theme park", r"water ?park", r"car ?park", r"memorial park",
                   r"industrial park", r"hotel", r"resort", r"mall", r"bar", r"restaurant", r"stadium", r"sports?",
                   r"tower", r"city", r"cent(?:re|er)", r"club", r"shop", r"school", r"station",
                   r"adventures?", r"tours?", r"div(?:e|ing)", r"scuba", r"golf"])
+NOT_HERITAGE = _rx([r"resorts?", r"stadium", r"sports?", r"golf", r"adventures?", r"tours?", r"div(?:e|ing)", r"scuba",
+                    r"theme park", r"water ?park", r"amusement park", r"swimming pool", r"circuit", r"race ?track",
+                    r"speedway", r"hotel", r"mall"])
 EATERY = _rx([r"restaurants?", r"restoran", r"seafood", r"kitchen", r"eatery", r"nasi", r"mee", r"noodles?",
               r"steamboat", r"dim sum", r"kopitiam"])
 CULTURE = _rx([r"temples?", r"wat", r"mosques?", r"masjid", r"churche?s?", r"cathedral", r"chapel", r"basilica", r"shrines?",
@@ -85,6 +88,12 @@ def classify(listing, name, desc):
         dn, dc = len(NATURE.findall(head)), len(CULTURE.findall(head))
         if NOT_NATURE.search(name) or NOT_NATURE.search(head):
             dn = 0
+        # A leisure venue in the NAME is the point; its description's museum is a feature of it
+        # ("Mobility Resort Motegi ... the museum of Honda" is a race track, not heritage).
+        # Narrower than NOT_NATURE: "city", "centre", "tower", "station" name heritage too
+        # (Imperial City of Hue, Old Tutuban Train Station).
+        if NOT_HERITAGE.search(name):
+            dc = 0
         if dc > dn and dc:
             return "culture"
         if dn > dc and dn:

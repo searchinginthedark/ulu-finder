@@ -29,6 +29,12 @@ CASES = [
     ("do", "Do", "Sipadan Scuba", "PADI dive centre near the reef.", "activities"),
     ("see", "See", "Petronas Twin Towers", "Once the world's tallest buildings.", "sights"),
     ("see", "See", "Little India", "Shops and temples line the street.", "culture"),
+    ("do", "Do", "Mobility Resort Motegi", "Here you will get to see the museum of Honda, Asimo apart from the race track.",
+     "activities"),                                                                    # misfire 2026-10-14
+    ("see", "See", "Honda Collection Hall Museum", "Inside the Motegi resort.", "culture"),  # near-miss: museum in NAME
+    ("see", "See", "Dejima", "A rebuilt Dutch trading post and museum.", "culture"),     # near-miss: no venue word
+    ("see", "See", "Imperial City of Hue", "The citadel and palace of the Nguyen emperors.", "culture"),  # near-miss: "city"
+    ("see", "See", "Old Tutuban Train Station", "A historic Spanish-era station.", "culture"),  # near-miss: "station"
     ("sleep", "Sleep", "Hotel Penaga", "", None),
     ("listing", "Sleep", "Some Hostel", "", None),
     ("listing", "Eat", "Line Clear Nasi Kandar", "", "dine"),
