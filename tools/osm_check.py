@@ -1,0 +1,72 @@
+"""Should signal D (osm_local) count toward the Ulu score in a country? Re-run before flipping
+`osm_score` in config/countries.json, and after any change to the matcher or the metric.
+
+    python tools/osm_check.py            (PYTHONIOENCODING=utf-8 on Windows)
+
+For each country it scores the published spots AS IF D were on (data/osm/<CC>.json), then
+labels food spots by their own Wikivoyage description: "foreign" (expat, western, pizza, Irish
+pub...) or "local" (noodles, hawker, izakaya...). The label is a rough proxy, so the verdict
+needs >= 20 labelled spots, local-sounding spots scoring >= 5 points higher on average, and no
+more foreign-sounding spots in the top 30 than their base share + 5 points.
+First run 2026-10-14: ON for TH VN MY JP KR TW CN; PH KH LA MM ran backwards.
+"""
+import copy
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ulu import osm, score  # noqa: E402
+
+FOREIGN = re.compile(r"\b(expat|expats|western|farang|backpacker|backpackers|tourist|tourists|irish|english pub|"
+                     r"british|german|italian|pizza|pizzeria|burger|burgers|sports bar|steak|mexican|french|swiss|"
+                     r"australian|american|hash browns|full english)\b", re.I)
+LOCALISH = re.compile(r"\b(noodle|noodles|street food|locals|local favourite|local favorite|hawker|stall|stalls|"
+                      r"vendors|market|rice|curry|dumpling|dumplings|izakaya|ramen|udon|soba|sushi|pho|banh|bun|"
+                      r"nasi|mee|laksa|kopitiam|warung|lechon|adobo|sisig|carinderia|bbq|barbecue|kimchi|bibimbap|"
+                      r"hotpot|dim sum|khao|isaan|lanna)\b", re.I)
+A_KEYS = ("local_views", "local_share", "local_only", "sitelinks")
+
+
+def verdict(rows):
+    lab = [r for r in rows if r[0] in "LF"]
+    if len(lab) < 20:
+        return "too few"
+    def mean(lbl):
+        u = [r[1] for r in rows if r[0] == lbl and r[1] is not None]
+        return sum(u) / len(u) if u else None
+    loc, forn = mean("L"), mean("F")
+    top = sorted((r for r in rows if r[1] is not None), key=lambda r: -r[1])[:30]
+    base = sum(1 for r in rows if r[0] == "F") / len(rows)
+    top_share = sum(1 for r in top if r[0] == "F") / len(top) if top else 1
+    ok = loc is not None and forn is not None and loc - forn >= 5 and top_share <= base + 0.05
+    return f"{'ON ' if ok else 'OFF'} local {loc or 0:.0f} vs foreign {forn or 0:.0f}, top30 foreign {100 * top_share:.0f}% (base {100 * base:.0f}%)"
+
+
+def main():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "config", "countries.json"), encoding="utf-8") as f:
+        flags = {c["cc"]: bool(c.get("osm_score")) for c in json.load(f)["countries"]}
+    for cc in sorted(flags):
+        path = os.path.join(root, "public", "data", f"{cc}.json")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            spots = copy.deepcopy(json.load(f)["spots"])
+        for s in spots:  # rebuild signals as the build would with D on: A + sitelinks, then D
+            s["signals"] = {k: v for k, v in (s.get("signals") or {}).items() if k in A_KEYS}
+        if not osm.attach(spots, cc, root, log=lambda m: None):
+            print(f"{cc}: no usable data/osm file")
+            continue
+        score.ulu_scores(spots)
+        rows = []
+        for s in spots:
+            if s["cat"] in osm.FOOD and "osm_local" in s["signals"]:
+                f, l = bool(FOREIGN.search(s["desc"])), bool(LOCALISH.search(s["desc"]))
+                rows.append(("F" if f and not l else "L" if l and not f else "?", s["ulu"]))
+        print(f"{cc}: config {'on ' if flags[cc] else 'off'} | {verdict(rows)}")
+
+
+if __name__ == "__main__":
+    main()

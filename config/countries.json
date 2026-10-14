@@ -1,10 +1,10 @@
 {
-  "_doc": "wv = the country's English Wikivoyage article. enabled = built by the collector. lang = Wikidata label language used for local-script names (platform search with query=local). lookup = local-language Wikipedia(s) for the Ulu score's signal A, with the label the app shows; only a language read mostly INSIDE the country counts (no zhwiki for SG/MY/CN/TW/HK/MO, no ptwiki for TL), and a country without one skips the signal. osm = Geofabrik extract path for signal D (ulu/osm.py); countries sharing one are read in a single pass. HK and MO use the China extract: UNVERIFIED that it covers them, the coverage guard rejects a zero-match result.",
+  "_doc": "wv = the country's English Wikivoyage article. enabled = built by the collector. lang = Wikidata label language used for local-script names (platform search with query=local). lookup = local-language Wikipedia(s) for the Ulu score's signal A, with the label the app shows; only a language read mostly INSIDE the country counts (no zhwiki for SG/MY/CN/TW/HK/MO, no ptwiki for TL), and a country without one skips the signal. osm = Geofabrik extract path for signal D (ulu/osm.py); countries sharing one are read in a single pass. HK and MO use the China extract: UNVERIFIED that it covers them, the coverage guard rejects a zero-match result. osm_score = signal D counts toward the Ulu score; set only where tools/osm_check.py shows local-sounding food outscoring foreign-sounding food with >= 20 labelled spots (2026-10-14: on for TH VN MY JP KR TW CN; PH/KH/LA/MM ran backwards, ID/SG had almost no local names, BN/HK/MO/TL too few to judge). Data is still collected for every country.",
   "countries": [
     {"cc": "SG", "name": "Singapore",   "wv": "Singapore",   "lang": "zh", "flag": "🇸🇬", "osm": "asia/malaysia-singapore-brunei", "enabled": true},
-    {"cc": "MY", "name": "Malaysia",    "wv": "Malaysia",    "lang": "ms", "flag": "🇲🇾", "lookup": {"wikis": ["ms"], "label": "Malay"}, "osm": "asia/malaysia-singapore-brunei", "enabled": true},
-    {"cc": "TH", "name": "Thailand",    "wv": "Thailand",    "lang": "th", "flag": "🇹🇭", "lookup": {"wikis": ["th"], "label": "Thai"}, "osm": "asia/thailand", "enabled": true},
-    {"cc": "VN", "name": "Vietnam",     "wv": "Vietnam",     "lang": "vi", "flag": "🇻🇳", "lookup": {"wikis": ["vi"], "label": "Vietnamese"}, "osm": "asia/vietnam", "enabled": true},
+    {"cc": "MY", "name": "Malaysia",    "wv": "Malaysia",    "lang": "ms", "flag": "🇲🇾", "lookup": {"wikis": ["ms"], "label": "Malay"}, "osm": "asia/malaysia-singapore-brunei", "osm_score": true, "enabled": true},
+    {"cc": "TH", "name": "Thailand",    "wv": "Thailand",    "lang": "th", "flag": "🇹🇭", "lookup": {"wikis": ["th"], "label": "Thai"}, "osm": "asia/thailand", "osm_score": true, "enabled": true},
+    {"cc": "VN", "name": "Vietnam",     "wv": "Vietnam",     "lang": "vi", "flag": "🇻🇳", "lookup": {"wikis": ["vi"], "label": "Vietnamese"}, "osm": "asia/vietnam", "osm_score": true, "enabled": true},
     {"cc": "ID", "name": "Indonesia",   "wv": "Indonesia",   "lang": "id", "flag": "🇮🇩", "lookup": {"wikis": ["id"], "label": "Indonesian"}, "osm": "asia/indonesia", "enabled": true},
     {"cc": "PH", "name": "Philippines", "wv": "Philippines", "lang": "tl", "flag": "🇵🇭", "lookup": {"wikis": ["tl"], "label": "Tagalog"}, "osm": "asia/philippines", "enabled": true},
     {"cc": "KH", "name": "Cambodia",    "wv": "Cambodia",    "lang": "km", "flag": "🇰🇭", "lookup": {"wikis": ["km"], "label": "Khmer"}, "osm": "asia/cambodia", "enabled": true},
@@ -12,10 +12,10 @@
     {"cc": "MM", "name": "Myanmar",     "wv": "Myanmar",     "lang": "my", "flag": "🇲🇲", "lookup": {"wikis": ["my"], "label": "Burmese"}, "osm": "asia/myanmar", "enabled": true},
     {"cc": "BN", "name": "Brunei",      "wv": "Brunei",      "lang": "ms", "flag": "🇧🇳", "lookup": {"wikis": ["ms"], "label": "Malay"}, "osm": "asia/malaysia-singapore-brunei", "enabled": true},
     {"cc": "TL", "name": "Timor-Leste", "wv": "East Timor",  "lang": "tet", "flag": "🇹🇱", "lookup": {"wikis": ["tet"], "label": "Tetum"}, "osm": "asia/east-timor", "enabled": true},
-    {"cc": "JP", "name": "Japan",       "wv": "Japan",       "lang": "ja", "flag": "🇯🇵", "lookup": {"wikis": ["ja"], "label": "Japanese"}, "osm": "asia/japan", "enabled": true},
-    {"cc": "KR", "name": "South Korea", "wv": "South Korea", "lang": "ko", "flag": "🇰🇷", "lookup": {"wikis": ["ko"], "label": "Korean"}, "osm": "asia/south-korea", "enabled": true},
-    {"cc": "CN", "name": "China",       "wv": "China",       "lang": "zh", "flag": "🇨🇳", "osm": "asia/china", "enabled": true},
-    {"cc": "TW", "name": "Taiwan",      "wv": "Taiwan",      "lang": "zh-tw", "flag": "🇹🇼", "osm": "asia/taiwan", "enabled": true},
+    {"cc": "JP", "name": "Japan",       "wv": "Japan",       "lang": "ja", "flag": "🇯🇵", "lookup": {"wikis": ["ja"], "label": "Japanese"}, "osm": "asia/japan", "osm_score": true, "enabled": true},
+    {"cc": "KR", "name": "South Korea", "wv": "South Korea", "lang": "ko", "flag": "🇰🇷", "lookup": {"wikis": ["ko"], "label": "Korean"}, "osm": "asia/south-korea", "osm_score": true, "enabled": true},
+    {"cc": "CN", "name": "China",       "wv": "China",       "lang": "zh", "flag": "🇨🇳", "osm": "asia/china", "osm_score": true, "enabled": true},
+    {"cc": "TW", "name": "Taiwan",      "wv": "Taiwan",      "lang": "zh-tw", "flag": "🇹🇼", "osm": "asia/taiwan", "osm_score": true, "enabled": true},
     {"cc": "HK", "name": "Hong Kong",   "wv": "Hong Kong",   "lang": "zh-hk", "flag": "🇭🇰", "osm": "asia/china", "enabled": true},
     {"cc": "MO", "name": "Macau",       "wv": "Macau",       "lang": "zh-hk", "flag": "🇲🇴", "osm": "asia/china", "enabled": true}
   ]

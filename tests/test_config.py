@@ -29,6 +29,13 @@ class ConfigTest(unittest.TestCase):
                     self.assertRegex(c.get("osm", ""), r"^(asia|europe|africa|north-america|south-america|"
                                                        r"central-america|australia-oceania)/[a-z0-9-]+$")
 
+    def test_osm_score_needs_an_extract(self):
+        for c in load("countries.json")["countries"]:
+            if "osm_score" in c:
+                with self.subTest(cc=c["cc"]):
+                    self.assertIs(c["osm_score"], True)  # absent = off; never a string "false"
+                    self.assertTrue(c.get("osm"))
+
     def test_templates(self):
         for pid, p in load("platforms.json")["platforms"].items():
             with self.subTest(pid=pid):
