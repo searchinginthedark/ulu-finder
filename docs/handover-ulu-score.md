@@ -117,7 +117,38 @@ fame is the thing we are trying not to over-reward.
     contributors" linking https://www.openstreetmap.org/copyright.
   - Weekly per-country extraction is "Substantial" under the OSMF guideline, so ODbL fully applies.
   - Reasoning and clause list: memory archive 2026-10-14-1558.md.
-- First step: measure the TH match rate before any contract or UI change.
+- MEASURED 2026-10-14 (TH, 960 of 1,822 coord spots; public Overpass failed before the rest,
+  user called it done). Matcher: normalised name or name:en, SequenceMatcher >= 0.85 or
+  whole-word containment (>= 5 chars), within 150 m, best candidate.
+  - Match rate 562/960 = 59%: dine 104/185, cafes 49/88, markets 29/54, culture 244/307.
+  - Precision: 30 of 30 sampled matches correct. Near-misses at 0.60-0.85 hold real matches
+    ("Maeyaa"/"Mae-Ya", "Naka Weekend Market"/"Naka Market") AND wrong ones ("Friendly Bar"/
+    "Kalae Bar", "Central Plaza"/"Central Udon"): loosen only with fixtures for both kinds.
+  - Detail is a FOOD signal: 83/104 matched dine carry >= 1 detail tag; culture 73/244 (temples
+    are mapped bare). Signal A already covers culture.
+  - FLAW to fix in the design: chains score high ("Hard Rock Cafe" = 5 tags) because brands are
+    mapped from brand data, not by locals. Drop `brand`/`operator` from the count and consider
+    them a negative; consider a local-script name (`name` in Thai script, `name:th`) as the
+    stronger "mapped by locals" marker.
+  - Ceiling = coordinates: only 629 of TH's 1,337 food spots have lat/lon, so expect ~350 food
+    spots scored in TH. No-coord matching (name within 10 km of the destination's spot centroid)
+    was not measured.
+  - Most common detail tags on matches: opening_hours, website, addr:street, cuisine,
+    addr:housenumber, phone, wheelchair.
+- RELIABILITY (required in the build, not optional):
+  - Source = Geofabrik country extracts only; never public Overpass (measured: 32 failures in an
+    hour on 3 servers, then a hard stop). Download in CI, verify against Geofabrik's published
+    `.md5`, and read the extract's timestamp; reject one older than 8 days.
+  - Geofabrik from this PC ran ~21 KB/s (Cloudflare 2.4 MB/s on the same line): measure the
+    download time IN CI before planning the timeout. Run D as its own job or workflow so a slow
+    extract cannot time out the A build.
+  - A failed or stale OSM read must NEVER read as "no match": the absent-key-means-no-data rule
+    would silently unscore every food spot. On failure keep last week's `osm_detail` values
+    with their own `osm_as_of` date, and mark the run degraded.
+  - Coverage guard, like `geocrumb_tree`'s < 10k check: if a country's matched count drops more
+    than 30% against last week, treat it as an outage (keep last week's), not a real change.
+  - Show freshness: `index.json` carries per-signal as-of dates; the app's credits line shows
+    the OSM date.
 
 ## 4. Score and transparency
 
