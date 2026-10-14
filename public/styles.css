@@ -69,9 +69,13 @@ a{color:var(--accent)}
 
 /* ---------- main ---------- */
 .main{max-width:640px;margin:0 auto;padding:0 12px 48px}
-.toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0}
+.toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:8px 0}
+.evidence{margin:12px 0 0;padding:10px 12px;background:var(--surface);border-radius:var(--radius);font-size:14px}
+.ev-head{margin:0 0 4px;font-size:14px}
+.ev-score{margin:0}
+.ev-list{margin:6px 0 0;padding-left:18px;color:var(--muted)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
-.seg-btn{min-height:44px;min-width:76px;padding:0 14px;background:transparent;border:0}
+.seg-btn{min-height:44px;min-width:64px;padding:0 10px;background:transparent;border:0;white-space:nowrap}
 .seg-btn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);font-weight:600}
 .link-btn{min-height:44px;padding:0 8px;background:none;border:0;color:var(--accent);font-weight:600;text-decoration:underline}
 .note{margin:0 0 8px;padding:10px 12px;border-left:3px solid var(--c-markets);background:var(--surface);border-radius:var(--radius);font-size:14px}

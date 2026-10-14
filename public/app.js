@@ -108,7 +108,7 @@
     r2: '',
     cat: '',
     q: '',
-    sort: 'top',
+    sort: 'local',       // local | top | near
     pos: null,           // {lat, lon}
     view: 'feed',        // feed | saved
     saved: read(K_SAVED, {}),
@@ -177,7 +177,14 @@
     var base = baseFiltered(S.data.spots || []);
     if (S.cat) base = base.filter(function (s) { return s.cat === S.cat; });
     var out = base.map(function (s) { return { spot: s, cc: S.cc, rn: regionName(s) }; });
-    if (S.sort === 'near' && S.pos) {
+    if (S.sort === 'local') {
+      // Unscored spots keep the file's own (Famous) order after the scored ones; sort is stable.
+      out.sort(function (a, b) {
+        var x = typeof a.spot.ulu === 'number' ? a.spot.ulu : -1;
+        var y = typeof b.spot.ulu === 'number' ? b.spot.ulu : -1;
+        return y - x;
+      });
+    } else if (S.sort === 'near' && S.pos) {
       out.forEach(function (it) {
         var s = it.spot;
         it.km = (typeof s.lat === 'number' && typeof s.lon === 'number')
@@ -268,6 +275,7 @@
     $('savedBtn').setAttribute('aria-pressed', saved ? 'true' : 'false');
     $('savedCount').textContent = String(savedCount());
     if (!saved) { renderRegions(); renderCats(); }
+    $('sortLocal').setAttribute('aria-pressed', S.sort === 'local' ? 'true' : 'false');
     $('sortTop').setAttribute('aria-pressed', S.sort === 'top' ? 'true' : 'false');
     $('sortNear').setAttribute('aria-pressed', S.sort === 'near' ? 'true' : 'false');
     S.list = computeList();
@@ -390,6 +398,49 @@
     dl.appendChild(el('dd', '', value));
   }
 
+  function fmtInt(n) { return Number(n).toLocaleString('en'); }
+
+  // Measurements only, in plain words; never a verdict like "locals love this" (docs/contract.md).
+  function evidenceLines(spot, cc) {
+    var sig = (spot.signals && typeof spot.signals === 'object') ? spot.signals : {};
+    var data = S.cache[cc];
+    var lang = (data && data.lookup_lang) || 'the local language';
+    var lines = [];
+    if (sig.local_only && typeof sig.local_views === 'number') {
+      lines.push('Only on ' + lang + ' Wikipedia, no English article (' + fmtInt(sig.local_views) + ' ' + lang + ' lookups in the past year)');
+    } else if (typeof sig.local_share === 'number') {
+      lines.push(Math.round(sig.local_share * 100) + '% of Wikipedia lookups are in ' + lang +
+        ' (' + fmtInt(sig.local_views || 0) + ' in the past year)');
+    } else if (typeof sig.local_views === 'number') {
+      lines.push('Too few Wikipedia lookups to compare languages');
+    }
+    if (typeof sig.sitelinks === 'number' && sig.sitelinks > 0) {
+      lines.push('Covered by ' + sig.sitelinks + ' Wikimedia site' + (sig.sitelinks === 1 ? '' : 's'));
+    }
+    if (spot.listed_by === 'wikivoyage') lines.push('Listed by Wikivoyage travellers');
+    return lines;
+  }
+
+  function buildEvidence(item) {
+    var spot = item.spot;
+    var box = el('div', 'evidence');
+    box.appendChild(el('h4', 'ev-head', 'Why it ranks here'));
+    var data = S.cache[item.cc];
+    if (typeof spot.ulu === 'number') {
+      box.appendChild(el('p', 'ev-score', 'Ulu score ' + spot.ulu + ' of 100, against other ' +
+        catLabel(spot.cat) + ' in ' + ((data && data.name) || 'this country')));
+    } else {
+      box.appendChild(el('p', 'ev-score', 'No local-reading evidence for this spot yet, so it has no Ulu score.'));
+    }
+    var lines = evidenceLines(spot, item.cc);
+    if (lines.length) {
+      var ul = el('ul', 'ev-list');
+      lines.forEach(function (t) { ul.appendChild(el('li', '', t)); });
+      box.appendChild(ul);
+    }
+    return box;
+  }
+
   function fillDetail(box, item) {
     var spot = item.spot;
     var dl = el('dl', 'facts');
@@ -397,6 +448,8 @@
     fact(dl, 'Price', spot.price);
     fact(dl, 'Address', spot.addr);
     if (dl.childNodes.length) box.appendChild(dl);
+
+    box.appendChild(buildEvidence(item));
 
     var links = el('div', 'links');
     box.appendChild(links);
@@ -551,6 +604,7 @@
     n.textContent = msg;
     n.hidden = false;
   }
+  function setSortLocal() { S.sort = 'local'; showNote(''); refresh(); }
   function setSortTop() { S.sort = 'top'; showNote(''); refresh(); }
   function setSortNear() {
     showNote('');
@@ -563,10 +617,10 @@
       showNote('');
       refresh();
     }, function (err) {
-      S.sort = 'top';
+      S.sort = 'local';
       showNote(err && err.code === 1
         ? 'Location permission was denied, so Nearby is off. Allow location for this site to use it.'
-        : 'Could not get your location. Showing Top instead.');
+        : 'Could not get your location. Showing Most local instead.');
       refresh();
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
   }
@@ -618,6 +672,7 @@
   function boot() {
     $('countryBtn').addEventListener('click', openCountrySheet);
     $('srcBtn').addEventListener('click', openSourcesSheet);
+    $('sortLocal').addEventListener('click', setSortLocal);
     $('sortTop').addEventListener('click', setSortTop);
     $('sortNear').addEventListener('click', setSortNear);
     $('savedBtn').addEventListener('click', function () {
