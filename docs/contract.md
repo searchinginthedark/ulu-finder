@@ -94,13 +94,15 @@ Field rules (the app must cope with every one being empty):
     construction). Say "only on Thai Wikipedia", never "100% of lookups": English readers may be reading
     a parent article instead (Erawan Falls is covered under Erawan National Park).
   - `sitelinks`: Wikidata sitelink count (same number as `score`), present only for spots with an item.
-  - `osm_detail`: integer, food categories only (`dine`, `cafes`, `markets`), present when the spot
-    matched an OpenStreetMap place (same name, within 150 m). Count of detail groups local mappers filled
-    in (see `osm_has`) plus 2 for a name in the local script. A chain brand scores 0.
-  - `osm_has`: list of the groups behind `osm_detail`, from `hours`, `cuisine`, `phone`, `web`, `addr`,
-    `diet`, `service`, `survey`, `local_name`. Show them as words ("opening hours, cuisine").
+  - `osm_local`: `1` or `0`, food categories only (`dine`, `cafes`, `markets`), present when the spot
+    matched an OpenStreetMap place (same name, within 150 m). `1` = the place is named in the local
+    language there (a `name:<lang>` tag, or a name in non-ASCII letters: Thai script, Vietnamese
+    diacritics). A chain brand is `0`. NOT a detail count: on TH, foreign places carried MORE detail
+    tags than local ones, while 59% of local-sounding vs 15% of foreign ones had a Thai name.
+    In a pool where every matched place has the same value (Japan: all names Japanese) the score
+    ignores it. Say "Named in Thai on OpenStreetMap" / "No Thai name on OpenStreetMap".
   - `osm_chain`: `true` when the OpenStreetMap place carries a `brand` tag. Say "part of a chain".
-  - `osm_detail`, `osm_has`, `osm_chain` and `ulu` (partly computed from them) are OpenStreetMap-derived
+  - `osm_local`, `osm_chain` and `ulu` (partly computed from them) are OpenStreetMap-derived
     and available under the ODbL; every other field is not, and OpenStreetMap NEVER changes `name`,
     `lat`/`lon`, `cat`, `desc` or any other Wikivoyage field (licence: docs/handover-ulu-score.md 3.D).
   - Planned, not yet emitted: `mentions` + `mention_url` (local subreddits; parked).

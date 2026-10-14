@@ -81,6 +81,26 @@ class UluTest(unittest.TestCase):
         self.assertTrue(all(s["ulu"] is None for s in pool))
 
 
+class ConstantSignalTest(unittest.TestCase):
+    def test_constant_locality_signal_scores_nobody(self):
+        # Japan: every OSM name is Japanese, so osm_local = 1 for every matched spot
+        pool = [spot("dine", osm_local=1) for _ in range(MIN_POOL + 5)]
+        ulu_scores(pool)
+        self.assertTrue(all(s["ulu"] is None for s in pool))
+
+    def test_two_values_do_score(self):
+        # near-miss: one spot without a local name is enough variation to rank on
+        pool = [spot("dine", osm_local=1) for _ in range(MIN_POOL)] + [spot("dine", osm_local=0)]
+        ulu_scores(pool)
+        self.assertTrue(all(isinstance(s["ulu"], int) for s in pool))
+        self.assertLess(pool[-1]["ulu"], pool[0]["ulu"])
+
+    def test_constant_signal_does_not_mute_a_live_one(self):
+        pool = [spot("dine", osm_local=1, local_share=i / 10) for i in range(MIN_POOL)]
+        ulu_scores(pool)
+        self.assertEqual(pool[-1]["ulu"], 95)  # local_share alone decides: top of 10 = 0.95
+
+
 class AttachTest(unittest.TestCase):
     def test_absent_keys_mean_no_data(self):
         spots = [{"wd": "Q1", "score": 7}, {"wd": "Q2", "score": 3}, {"wd": "", "score": 0}]

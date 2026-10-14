@@ -8,9 +8,9 @@ becomes "Most famous".
 import bisect
 from collections import defaultdict
 
-# signals key -> weight. B (mentions) and D (osm_detail) join here when they are built.
-WEIGHTS = {"local_share": 0.40, "mentions": 0.30, "osm_detail": 0.15, "sitelinks": 0.15}
-LOCALITY = ("local_share", "mentions", "osm_detail")
+# signals key -> weight. D is osm_local (local-language name on OpenStreetMap); B is parked.
+WEIGHTS = {"local_share": 0.40, "mentions": 0.30, "osm_local": 0.15, "sitelinks": 0.15}
+LOCALITY = ("local_share", "mentions", "osm_local")
 # A percentile among a handful of spots is noise: with 4 scored TH Activities, a 32% Thai share
 # ranked RamaYana Water Park 80. Below this many locality-scored spots, the whole pool stays null.
 MIN_POOL = 10
@@ -34,18 +34,29 @@ def ulu_scores(spots, min_pool=MIN_POOL):
     for s in spots:
         by_cat[s["cat"]].append(s)
     for pool in by_cat.values():
-        local = sum(1 for s in pool if any((s.get("signals") or {}).get(k) is not None for k in LOCALITY))
+        # A locality signal with one value across the whole pool tells its spots nothing apart:
+        # in Japan every OSM name is Japanese, so osm_local = 1 everywhere. It must not turn
+        # "matched on OSM" into a score, so it is ignored in that pool.
+        dead = set()
+        for k in LOCALITY:
+            vals = [(s.get("signals") or {}).get(k) for s in pool]
+            vals = [v for v in vals if v is not None]
+            if len(vals) >= 2 and len(set(vals)) == 1:
+                dead.add(k)
+        keys = [k for k in WEIGHTS if k not in dead]
+        live = [k for k in LOCALITY if k not in dead]
+        local = sum(1 for s in pool if any((s.get("signals") or {}).get(k) is not None for k in live))
         if local < min_pool:
             for s in pool:
                 s["ulu"] = None
             continue
         pct = {}
-        for key in WEIGHTS:
+        for key in keys:
             vals = [s["signals"][key] for s in pool if s.get("signals", {}).get(key) is not None]
             pct[key] = percentiles(vals) if vals else {}
         for s in pool:
             sig = s.get("signals") or {}
-            have = [k for k in WEIGHTS if sig.get(k) is not None]
+            have = [k for k in keys if sig.get(k) is not None]
             if not any(k in LOCALITY for k in have):
                 s["ulu"] = None
                 continue

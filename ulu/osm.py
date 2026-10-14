@@ -121,7 +121,9 @@ def has_local_name(tags, lang):
 
 
 def detail(tags, lang):
-    """(osm_detail, osm_has, chain). A chain is mapped from brand data, not by locals: it scores 0."""
+    """(d, has, chain) for data/osm/<CC>.json. attach() scores only "local_name" in has; `d` and the
+    other groups are kept for diagnosis (they ran the wrong way as a locality signal on TH).
+    A chain is mapped from brand data, not by locals."""
     if any(tags.get(k) for k in CHAIN):
         return 0, [], True
     has = []
@@ -216,10 +218,13 @@ def attach(spots, cc, root=ROOT, today=None, log=print):
         if not e:
             continue
         sig = s.setdefault("signals", {})
-        sig["osm_detail"] = e["d"]
-        if e.get("has"):
-            sig["osm_has"] = list(e["has"])
-        if e.get("chain"):
+        # The score uses ONLY the local-language name. Measured on 330 matched TH food spots
+        # (2026-10-14): 59% of local-sounding places carry a Thai name vs 15% of expat/foreign
+        # ones, while the detail-tag count ran the WRONG way (1.89 foreign vs 1.16 local:
+        # expats map their own haunts thoroughly). The file keeps `d`/`has` for diagnosis only.
+        chain = bool(e.get("chain"))
+        sig["osm_local"] = 0 if chain else int("local_name" in (e.get("has") or ()))
+        if chain:
             sig["osm_chain"] = True
         n += 1
     log(f"  osm: {cc} {n} spots carry OSM detail (extract {as_of}, {age} days old)")

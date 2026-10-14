@@ -147,11 +147,13 @@ class AttachTest(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.root, "data", "osm"))
         self.food = spot("Peppers Restaurant & Bakery")
+        self.plain = spot("O'Malley's Irish Pub", cat="cafes")
         self.chain = spot("Hard Rock Cafe", src="https://en.wikivoyage.org/wiki/Bangkok#Eat")
         self.temple = spot("Wat Lok Moli", cat="culture")
 
     def write(self, as_of):
-        entries = {osm.spot_key(self.food): {"d": 5, "has": ["hours", "cuisine", "phone"]},
+        entries = {osm.spot_key(self.food): {"d": 5, "has": ["hours", "cuisine", "local_name"]},
+                   osm.spot_key(self.plain): {"d": 3, "has": ["hours", "phone", "web"]},
                    osm.spot_key(self.chain): {"d": 0, "chain": True},
                    osm.spot_key(self.temple): {"d": 3}}
         with open(os.path.join(self.root, "data", "osm", "TH.json"), "w", encoding="utf-8") as f:
@@ -159,12 +161,15 @@ class AttachTest(unittest.TestCase):
 
     def test_adds_only_osm_signals(self):
         self.write("2026-10-17")
-        spots = [self.food, self.chain, self.temple]
+        spots = [self.food, self.plain, self.chain, self.temple]
         before = copy.deepcopy(spots)
         got = osm.attach(spots, "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)
         self.assertEqual(got, "2026-10-17")
-        self.assertEqual(self.food["signals"], {"osm_detail": 5, "osm_has": ["hours", "cuisine", "phone"]})
-        self.assertEqual(self.chain["signals"], {"osm_detail": 0, "osm_chain": True})
+        self.assertEqual(self.food["signals"], {"osm_local": 1})
+        # near-miss: thoroughly mapped (hours, phone, web) but no Thai name scores 0; detail is
+        # not locality (TH: foreign places averaged MORE detail tags than local ones)
+        self.assertEqual(self.plain["signals"], {"osm_local": 0})
+        self.assertEqual(self.chain["signals"], {"osm_local": 0, "osm_chain": True})
         # licence invariant: OpenStreetMap never changes a Wikivoyage field
         for s, b in zip(spots, before):
             self.assertEqual({k: v for k, v in s.items() if k != "signals"}, {k: v for k, v in b.items() if k != "signals"})
