@@ -11,6 +11,9 @@ from collections import defaultdict
 # signals key -> weight. B (mentions) and D (osm_detail) join here when they are built.
 WEIGHTS = {"local_share": 0.40, "mentions": 0.30, "osm_detail": 0.15, "sitelinks": 0.15}
 LOCALITY = ("local_share", "mentions", "osm_detail")
+# A percentile among a handful of spots is noise: with 4 scored TH Activities, a 32% Thai share
+# ranked RamaYana Water Park 80. Below this many locality-scored spots, the whole pool stays null.
+MIN_POOL = 10
 
 
 def percentiles(values):
@@ -23,12 +26,19 @@ def percentiles(values):
     return out
 
 
-def ulu_scores(spots):
-    """Set spot["ulu"] in place from spot["signals"]; percentiles are taken per category."""
+def ulu_scores(spots, min_pool=MIN_POOL):
+    """Set spot["ulu"] in place from spot["signals"]; percentiles are taken per category.
+
+    A category with fewer than min_pool spots carrying locality evidence scores nobody."""
     by_cat = defaultdict(list)
     for s in spots:
         by_cat[s["cat"]].append(s)
     for pool in by_cat.values():
+        local = sum(1 for s in pool if any((s.get("signals") or {}).get(k) is not None for k in LOCALITY))
+        if local < min_pool:
+            for s in pool:
+                s["ulu"] = None
+            continue
         pct = {}
         for key in WEIGHTS:
             vals = [s["signals"][key] for s in pool if s.get("signals", {}).get(key) is not None]

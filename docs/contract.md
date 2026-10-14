@@ -75,7 +75,9 @@ Field rules (the app must cope with every one being empty):
 - `img`: `null` for most food listings. Never hotlink anything but `commons.wikimedia.org`.
 - `score`: popularity, higher first. Wikidata sitelink count where the listing is on Wikidata, else 0.
   Ties keep collector order (Wikivoyage's own order). Spots arrive pre-sorted by score desc.
-- `ulu`: the Ulu score, 0-100, or `null` when the spot has no locality evidence (no signal A/B/D).
+- `ulu`: the Ulu score, 0-100, or `null` when the spot has no locality evidence (no signal A/B/D),
+  OR when fewer than 10 spots in its (country, category) have locality evidence (`MIN_POOL`): a
+  percentile among a handful is noise. The app tells the two apart by whether `signals` holds a locality key.
   Fame (`sitelinks`) alone never produces a score. Percentiles are per category within the country,
   so 74 means "more local-skewed than most Sights in Malaysia", not an absolute rating.
   Spots are NOT sorted by it; the app sorts ("Most local" = ulu desc, nulls last).

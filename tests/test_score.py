@@ -3,7 +3,7 @@ from datetime import date
 
 from ulu import signals
 from ulu.build import attach_signals
-from ulu.score import percentiles, ulu_scores
+from ulu.score import MIN_POOL, percentiles, ulu_scores
 
 
 def spot(cat, **sig):
@@ -43,25 +43,42 @@ class PercentileTest(unittest.TestCase):
 class UluTest(unittest.TestCase):
     def test_fame_alone_never_scores(self):
         s = [spot("sights", sitelinks=80)]
-        ulu_scores(s)
+        ulu_scores(s, min_pool=1)
         self.assertIsNone(s[0]["ulu"])
 
     def test_no_signals_is_null_not_zero(self):
         s = [spot("dine")]
-        ulu_scores(s)
+        ulu_scores(s, min_pool=1)
         self.assertIsNone(s[0]["ulu"])
 
     def test_missing_signal_renormalises(self):
         # sitelinks missing on b: its score must come from local_share alone, not be dragged to 0
         a, b = spot("sights", local_share=0.2, sitelinks=5), spot("sights", local_share=0.9)
-        ulu_scores([a, b])
+        ulu_scores([a, b], min_pool=1)
         self.assertEqual(b["ulu"], 75)
         self.assertEqual(a["ulu"], round(100 * (0.4 * 0.25 + 0.15 * 0.5) / 0.55))
 
     def test_percentiles_are_per_category(self):
         a, b = spot("dine", local_share=0.1), spot("nature", local_share=0.9)
-        ulu_scores([a, b])
+        ulu_scores([a, b], min_pool=1)
         self.assertEqual(a["ulu"], b["ulu"])  # each is alone in its category
+
+    def test_small_pool_scores_nobody(self):
+        pool = [spot("activities", local_share=i / 10) for i in range(MIN_POOL - 1)]
+        ulu_scores(pool)
+        self.assertTrue(all(s["ulu"] is None for s in pool))
+
+    def test_pool_at_the_floor_scores(self):
+        # near-miss: exactly MIN_POOL locality-scored spots is enough
+        pool = [spot("activities", local_share=i / 10) for i in range(MIN_POOL)]
+        ulu_scores(pool)
+        self.assertTrue(all(isinstance(s["ulu"], int) for s in pool))
+
+    def test_fame_only_spots_do_not_fill_the_pool(self):
+        pool = [spot("activities", local_share=i / 10) for i in range(MIN_POOL - 1)]
+        pool += [spot("activities", sitelinks=50) for _ in range(5)]
+        ulu_scores(pool)
+        self.assertTrue(all(s["ulu"] is None for s in pool))
 
 
 class AttachTest(unittest.TestCase):

@@ -421,6 +421,11 @@
     return lines;
   }
 
+  function hasLocality(spot) {
+    var sig = (spot.signals && typeof spot.signals === 'object') ? spot.signals : {};
+    return ['local_share', 'mentions', 'osm_detail'].some(function (k) { return typeof sig[k] === 'number'; });
+  }
+
   function buildEvidence(item) {
     var spot = item.spot;
     var box = el('div', 'evidence');
@@ -429,6 +434,10 @@
     if (typeof spot.ulu === 'number') {
       box.appendChild(el('p', 'ev-score', 'Ulu score ' + spot.ulu + ' of 100, against other ' +
         catLabel(spot.cat) + ' in ' + ((data && data.name) || 'this country')));
+    } else if (hasLocality(spot)) {
+      // the build nulls a score when too few comparable spots have evidence (MIN_POOL in ulu/score.py)
+      box.appendChild(el('p', 'ev-score', 'Too few ' + catLabel(spot.cat) + ' in ' +
+        ((data && data.name) || 'this country') + ' have local-reading evidence to rank this one fairly, so no Ulu score yet.'));
     } else {
       box.appendChild(el('p', 'ev-score', 'No local-reading evidence for this spot yet, so it has no Ulu score.'));
     }
