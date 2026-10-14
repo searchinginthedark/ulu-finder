@@ -1,4 +1,4 @@
-const CACHE = 'ulu-v6';
+const CACHE = 'ulu-v7';
 const ASSETS = [
   './',
   'app.js',
