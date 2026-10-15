@@ -321,7 +321,7 @@ def resolve_platforms(cc, platforms):
     def one(pid):
         p = reg[pid]
         return {"id": pid, "name": p["name"], "url": p["url"], "query": p["query"],
-                "verified": p["verified"], "cities": p.get("cities")}
+                "verified": p["verified"], "cities": p.get("cities"), "mobile": p.get("mobile")}
     return {"dine": [one(p) for p in conf["dine"]], "any": [one(p) for p in conf["any"]]}, conf.get("why", "")
 
 

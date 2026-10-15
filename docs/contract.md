@@ -42,7 +42,7 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
     {"id": "27188", "name": "Penang", "parent": "38881", "level": 2, "count": 310}
   ],
   "platforms": {
-    "dine": [{"id": "gmaps", "name": "Google Maps", "url": "https://...{q}", "query": "en", "verified": "ok", "cities": null}],
+    "dine": [{"id": "gmaps", "name": "Google Maps", "url": "https://...{q}", "query": "en", "verified": "ok", "cities": null, "mobile": null}],
     "any":  [...]
   },
   "spots": [
@@ -124,5 +124,9 @@ For each platform:
    (keeps "Central Market" from matching the wrong city).
 2. If the URL has `{city}`: look up `spot.dest`, then each name in `spot.up` in order, in
    `platform.cities`. No match -> omit this platform for this spot.
-3. Replace `{q}` with `encodeURIComponent(query)`.
+0. On a phone (UA says Android/iPhone/iPad), use `platform.mobile` instead of `platform.url` when it is set.
+3. Replace `{q}` with `encodeURIComponent(query)` and `{slug}` with `encodeURIComponent(slug)`,
+   slug = query lowercased, each run of non-letter/mark/digit characters turned into `-`.
+Only `https://` links and the `xhsdiscover://` app scheme are rendered; an app link opens in place
+(no new window) and gets a small "app" hint.
 `verified: "login"` platforms get a small "sign-in" hint; `"challenge"` platforms render normally.

@@ -1,9 +1,11 @@
 {
-  "_doc": "Where locals actually look things up, per country. Templates take {q} (URL-encoded query) and optionally {city} (from the platform's cities map, keyed by the spot's region/destination names; no match means no link). verified = what tools/check_links.py measured: 'ok' (search page returned results to a plain HTTP client), 'challenge' (bot wall, format from the platform's own UI, works in a real browser), 'login' (needs the user signed in). query = 'local' uses the local-script name when we have one.",
+  "_doc": "Where locals actually look things up, per country. Templates take {q} (URL-encoded query) and optionally {city} (from the platform's cities map, keyed by the spot's region/destination names; no match means no link). verified = what tools/check_links.py measured: 'ok' (search page returned results to a plain HTTP client), 'challenge' (bot wall, format from the platform's own UI, works in a real browser), 'login' (needs the user signed in). query = 'local' uses the local-script name when we have one. mobile = template used instead on phones (measured 2026-10-15): TikTok's mobile web /search ignores q and shows trending, while /discover/{slug} (slug = query lowercased, non-letters to '-') resolves to real results and is a universal link into the app; Xiaohongshu's mobile web search_result is a 404 page, so phones get its documented xhsdiscover:// app link (needs the app installed).",
   "platforms": {
     "gmaps":     {"name": "Google Maps", "url": "https://www.google.com/maps/search/?api=1&query={q}", "query": "en", "verified": "ok"},
-    "tiktok":    {"name": "TikTok", "url": "https://www.tiktok.com/search?q={q}", "query": "en", "verified": "ok"},
-    "xhs":       {"name": "Xiaohongshu", "url": "https://www.xiaohongshu.com/search_result?keyword={q}", "query": "local", "verified": "ok"},
+    "tiktok":    {"name": "TikTok", "url": "https://www.tiktok.com/search?q={q}", "query": "en", "verified": "ok",
+                  "mobile": "https://www.tiktok.com/discover/{slug}"},
+    "xhs":       {"name": "Xiaohongshu", "url": "https://www.xiaohongshu.com/search_result?keyword={q}", "query": "local", "verified": "login",
+                  "mobile": "xhsdiscover://search/result?keyword={q}"},
     "lemon8":    {"name": "Lemon8", "url": "https://www.lemon8-app.com/discover/search?q={q}", "query": "en", "verified": "ok"},
     "instagram": {"name": "Instagram", "url": "https://www.instagram.com/explore/search/keyword/?q={q}", "query": "en", "verified": "login"},
     "facebook":  {"name": "Facebook", "url": "https://www.facebook.com/search/top?q={q}", "query": "en", "verified": "login"},

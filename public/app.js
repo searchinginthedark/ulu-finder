@@ -64,6 +64,20 @@
     if (typeof u !== 'string') return null;
     return /^https?:\/\//i.test(u) ? u : null;
   }
+  // App deep links a platform's `mobile` template may use; anything else non-http is dropped.
+  var APP_LINK = /^xhsdiscover:\/\//i;
+  // Platforms serve phones different (often broken) search pages, so the choice follows the UA,
+  // like their servers do. iPadOS reports a Mac UA; touch points give it away.
+  var IS_PHONE = (function () {
+    try { if (navigator.userAgentData && navigator.userAgentData.mobile) return true; } catch (e) {}
+    var ua = navigator.userAgent || '';
+    return /Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  })();
+  // TikTok /discover/{slug}: lowercase, every run of non-letters to '-'. \p{M} keeps Thai and
+  // Vietnamese marks attached to their letters.
+  function slugify(s) {
+    return String(s).toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+  }
   function safeImg(u) {
     var s = safeHttp(u);
     if (!s) return null;
@@ -516,9 +530,10 @@
       built.forEach(function (p, i) {
         var a = el('a', 'plat' + (i === 0 ? ' primary' : ''), p.name);
         a.href = p.href;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        if (p.verified === 'login') a.appendChild(el('small', '', 'sign-in'));
+        // an app link in a new window leaves a blank tab behind (or nothing, in a standalone PWA)
+        if (!p.app) { a.target = '_blank'; a.rel = 'noopener'; }
+        if (p.app) a.appendChild(el('small', '', 'app'));
+        else if (p.verified === 'login') a.appendChild(el('small', '', 'sign-in'));
         box.appendChild(a);
       });
     }).catch(function () {
@@ -534,9 +549,9 @@
     (list || []).forEach(function (p) {
       if (!p || typeof p.url !== 'string') return;
       var query = (p.query === 'local' && spot.local) ? spot.local : spot.name;
-      var hasCity = p.url.indexOf('{city}') >= 0;
+      var url = (IS_PHONE && typeof p.mobile === 'string') ? p.mobile : p.url;
+      var hasCity = url.indexOf('{city}') >= 0;
       if (p.query === 'en' && !hasCity && spot.dest) query += ' ' + spot.dest;
-      var url = p.url;
       if (hasCity) {
         var cities = p.cities || {};
         var names = [spot.dest].concat(Array.isArray(spot.up) ? spot.up : []);
@@ -548,9 +563,12 @@
         url = url.split('{city}').join(encodeURIComponent(String(city)));
       }
       url = url.split('{q}').join(encodeURIComponent(query));
+      url = url.split('{slug}').join(encodeURIComponent(slugify(query)));
       var href = safeHttp(url);
+      var app = !href && APP_LINK.test(url);
+      if (app) href = url;
       if (!href) return;
-      out.push({ name: p.name || p.id, href: href, verified: p.verified });
+      out.push({ name: p.name || p.id, href: href, verified: p.verified, app: app });
     });
     return out;
   }

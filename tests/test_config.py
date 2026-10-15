@@ -45,6 +45,18 @@ class ConfigTest(unittest.TestCase):
                 self.assertIn(p["verified"], ("ok", "challenge", "login"))
                 # a {city} template without a cities map would never produce a link
                 self.assertEqual("{city}" in p["url"], bool(p.get("cities")))
+                if "mobile" in p:
+                    # app.js only lets https and the xhsdiscover app scheme through
+                    self.assertRegex(p["mobile"], r"^(https://|xhsdiscover://)")
+                    self.assertTrue("{q}" in p["mobile"] or "{slug}" in p["mobile"])
+                    self.assertNotIn("{city}", p["mobile"])
+
+    def test_phone_templates_for_broken_mobile_web(self):
+        # measured 2026-10-15: TikTok mobile web /search shows trending, XHS mobile web is a 404
+        plat = load("platforms.json")["platforms"]
+        self.assertEqual(plat["tiktok"]["mobile"], "https://www.tiktok.com/discover/{slug}")
+        self.assertTrue(plat["xhs"]["mobile"].startswith("xhsdiscover://search/result?keyword="))
+        self.assertEqual(plat["xhs"]["verified"], "login")  # desktop shows 登录后查看搜索结果
 
 
 if __name__ == "__main__":
