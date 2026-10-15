@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from . import net, osm, score, signals, wikitext
-from .classify import CATEGORIES, classify
+from .classify import CATEGORIES, classify, excluded
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COMMONS = "https://commons.wikimedia.org/wiki/Special:FilePath/"
@@ -156,7 +156,13 @@ def norm(s):
     return re.sub(r"[^\w]+", " ", s.lower()).strip()
 
 
-def page_spots(pid, page, path, titles):
+def edit_year(v):
+    """Year of a listing's `lastedit` (2019-05-12, 2019-5-1, 2019-05, 2019), else None."""
+    m = re.match(r"\s*((?:19|20)\d\d)(?:\D|$)", v or "")
+    return int(m.group(1)) if m else None
+
+
+def page_spots(pid, page, path, titles, dropped=None):
     title = page["title"]
     dest = display_name(title)
     up = [display_name(titles[a]) for a in reversed(path[:-1])]
@@ -168,7 +174,7 @@ def page_spots(pid, page, path, titles):
     if status.endswith("park"):
         out.append({"name": dest, "alt": "", "cat": "nature", "lat": page["lat"], "lon": page["lon"],
                     "desc": wikitext.lede(page["text"]), "hours": "", "price": "", "addr": "",
-                    "img": commons_url(page["image"]), "wd": page["wd"], "src": base_src})
+                    "img": commons_url(page["image"]), "wd": page["wd"], "src": base_src, "edited": None})
     for l in wikitext.listings(page["text"]):
         p = l["params"]
         name = wikitext.clean(p.get("name", ""))
@@ -178,6 +184,11 @@ def page_spots(pid, page, path, titles):
         cat = classify(l, name, desc)
         if not cat:
             continue
+        why = excluded(cat, name, desc, dest)
+        if why:
+            if dropped is not None:
+                dropped[why] += 1
+            continue
         wd = (p.get("wikidata") or "").strip()
         out.append({
             "name": name, "alt": wikitext.clean(p.get("alt", "")), "cat": cat,
@@ -186,6 +197,7 @@ def page_spots(pid, page, path, titles):
             "price": wikitext.clean(p.get("price", ""), 120), "addr": wikitext.clean(p.get("address", ""), 160),
             "img": commons_url(p.get("image", "")), "wd": wd if re.fullmatch(r"Q\d+", wd) else "",
             "src": base_src + ("#" + urllib.parse.quote(l["section"].replace(" ", "_")) if l["section"] else ""),
+            "edited": edit_year(p.get("lastedit")),
         })
     for s in out:
         s.update({"dest": dest, "up": up, "r1": r1, "r2": r2, "dest_wd": page["wd"],
@@ -372,9 +384,12 @@ def build_country(c, tree, platforms, cache_dir, log, out_dir=None):
     skip = {pid for pid in desc if not_place(wikitext.status_template(pages[pid]["text"]))}
     desc = {pid: path for pid, path in desc.items() if not skip.intersection(path)}
     spots = []
+    dropped = defaultdict(int)
     # depth-first by breadcrumb path keeps each article's listings together, regions in Wikivoyage order
     for pid in sorted(desc, key=lambda p: [titles[a] for a in desc[p]]):
-        spots.extend(page_spots(pid, pages[pid], desc[pid], titles))
+        spots.extend(page_spots(pid, pages[pid], desc[pid], titles, dropped))
+    if dropped:
+        log(f"{c['cc']}: left out " + ", ".join(f"{n} {why}" for why, n in sorted(dropped.items())))
     spots = dedupe(spots)
     facts = wikidata_facts([s["wd"] for s in spots] + [s["dest_wd"] for s in spots], c.get("lang"))
     enrich(spots, facts)
@@ -419,7 +434,7 @@ def build_country(c, tree, platforms, cache_dir, log, out_dir=None):
                             "level": len(desc[pid]), "count": counts[pid]})
     plats, why = resolve_platforms(c["cc"], platforms)
     keep = ("id", "name", "local", "cat", "r1", "r2", "dest", "up", "lat", "lon", "desc",
-            "hours", "price", "addr", "img", "score", "ulu", "signals", "listed_by", "src")
+            "hours", "price", "addr", "img", "score", "ulu", "signals", "listed_by", "src", "edited")
     log(f"{c['cc']}: {len(desc)} articles, {len(spots)} spots, {sum(1 for s in spots if s['img'])} with image, "
         f"{len(facts)} wikidata items, {sum(1 for s in spots if s['ulu'] is not None)} with an Ulu score")
     return {"cc": c["cc"], "name": c["name"], "generated": now(), "why": why,

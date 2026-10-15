@@ -9,6 +9,7 @@
   var K_SAVED = 'ulu.saved.v1';
   var K_OPENS = 'ulu.opens.v1';
   var DINE_CATS = ['dine', 'markets', 'cafes'];
+  var STALE_YEAR = 2019;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -553,6 +554,12 @@
     return a;
   }
 
+  // No permitted source says a restaurant is still open; the listing's last edit is the honest
+  // proxy. Food last touched in 2019 or earlier predates the COVID closures (user ruling 2026-10-15).
+  function isStale(spot) {
+    return DINE_CATS.indexOf(spot.cat) >= 0 && typeof spot.edited === 'number' && spot.edited <= STALE_YEAR;
+  }
+
   function buildCard(item) {
     var spot = item.spot;
     var card = el('article', 'card cat-' + spot.cat);
@@ -578,6 +585,7 @@
     top.appendChild(el('span', 'more', 'Details'));
     body.appendChild(top);
     body.appendChild(el('h3', 'name', spot.name));
+    if (isStale(spot)) body.appendChild(el('p', 'stale', 'Last checked ' + spot.edited + ', before COVID. May have closed.'));
     if (spot.local) body.appendChild(el('p', 'local', spot.local));
     if (spot.desc) body.appendChild(el('p', 'desc', spot.desc));
     hit.appendChild(body);
@@ -695,6 +703,7 @@
     fact(dl, 'Hours', spot.hours);
     fact(dl, 'Price', spot.price);
     fact(dl, 'Address', spot.addr);
+    if (typeof spot.edited === 'number') fact(dl, 'Last checked', 'On Wikivoyage, ' + spot.edited);
     if (dl.childNodes.length) box.appendChild(dl);
 
     box.appendChild(buildEvidence(item));

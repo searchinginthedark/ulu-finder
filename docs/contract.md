@@ -13,7 +13,7 @@ The app reads ONLY `public/data/index.json` and `public/data/<CC>.json`. The col
                           "url": "https://www.openstreetmap.org/copyright", "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/"}},
   "categories": [
     {"id": "dine", "label": "Dine"}, {"id": "markets", "label": "Markets & Hawkers"},
-    {"id": "cafes", "label": "Cafes & Bars"}, {"id": "shopping", "label": "Shopping"},
+    {"id": "cafes", "label": "Cafes & Desserts"}, {"id": "shopping", "label": "Shopping"},
     {"id": "nature", "label": "Nature"}, {"id": "culture", "label": "Temples & Heritage"},
     {"id": "sights", "label": "Sights"}, {"id": "activities", "label": "Activities"}
   ],
@@ -121,6 +121,16 @@ Field rules (the app must cope with every one being empty):
 - `listed_by`: who listed the spot. Always `"wikivoyage"` today.
 - `desc`: plain text, wiki markup stripped, at most 400 chars.
 - `src`: the Wikivoyage section the listing came from. CC BY-SA requires a visible link to it.
+- `edited`: year of the listing's Wikivoyage `lastedit`, or `null` when it has none (most listings).
+  It is the only freshness signal a permitted source gives; no source says a place is still open.
+  The app marks food (`dine`, `markets`, `cafes`) with `edited <= 2019` as "may have closed".
+
+What never reaches a file (`ulu/classify.py`, `excluded`; user rulings 2026-10-15):
+- Nightlife: Drink-section listings that are not cafes (bars, pubs, clubs). `cafes` = coffee, tea, bakes, sweets.
+- Listings that say they are closed about THEMSELVES ("PERMANENTLY CLOSED", "closed since 2020").
+  Opening hours ("Closed on Mondays") and closed neighbours ("since X closed down") do not count.
+- International food chains (McDonald's, Starbucks, KFC, Hard Rock...). Home-grown chains stay.
+- Food listed under an airport article.
 
 ## Building a platform link (app side)
 
