@@ -76,7 +76,8 @@ Field rules (the app must cope with every one being empty):
 - `up`: names of the Wikivoyage articles above `dest`, nearest first, country excluded
   (`["Penang", "West Coast"]`). District pages put their city here ("District 1" -> `["Ho Chi Minh City", ...]`).
   Used only for `{city}` lookup; not displayed.
-- `lat`/`lon`: `null` when the listing has no coordinates (about a third do not).
+- `lat`/`lon`: `null` when neither the listing nor its own Wikidata item (P625, CC0, accepted only
+  within 50 km of the destination) has coordinates. OpenStreetMap never supplies them.
 - `img`: `null` for most food listings. Never hotlink anything but `commons.wikimedia.org`.
 - `score`: popularity, higher first. Wikidata sitelink count where the listing is on Wikidata, else 0.
   Ties keep collector order (Wikivoyage's own order). Spots arrive pre-sorted by score desc.
@@ -95,7 +96,9 @@ Field rules (the app must cope with every one being empty):
     a parent article instead (Erawan Falls is covered under Erawan National Park).
   - `sitelinks`: Wikidata sitelink count (same number as `score`), present only for spots with an item.
   - `osm_local`: `1` or `0`, food categories only (`dine`, `cafes`, `markets`), present when the spot
-    matched an OpenStreetMap place (same name, within 150 m). `1` = the place is named in the local
+    matched an OpenStreetMap place: same name within 150 m, or, for a listing without coordinates,
+    the only food/drink place of that name inside its destination's area (used only in countries
+    where the weekly holdout passes and `osm_area` is not false). `1` = the place is named in the local
     language there (a `name:<lang>` tag, or a name in non-ASCII letters: Thai script, Vietnamese
     diacritics). A chain brand is `0`. NOT a detail count: on TH, foreign places carried MORE detail
     tags than local ones, while 59% of local-sounding vs 15% of foreign ones had a Thai name.
