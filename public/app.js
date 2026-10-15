@@ -120,6 +120,7 @@
     cache: {},           // cc -> country file
     r1: '',
     r2: '',
+    dest: '',
     cat: '',
     q: '',
     sort: 'local',       // local | top | near
@@ -168,6 +169,7 @@
     return spots.filter(function (s) {
       if (S.r1 && s.r1 !== S.r1) return false;
       if (S.r2 && s.r2 !== S.r2) return false;
+      if (S.dest && s.dest !== S.dest) return false;
       if (q) {
         if (norm(s.name).indexOf(q) < 0 && norm(s.local).indexOf(q) < 0 && norm(s.dest).indexOf(q) < 0) return false;
       }
@@ -237,28 +239,16 @@
     row.scrollLeft = left;
   }
 
-  function renderRegions() {
+  function whereLabel() {
     var d = S.data;
-    var r1Row = $('r1Row'), r2Row = $('r2Row');
-    if (!d) { r1Row.textContent = ''; r2Row.hidden = true; return; }
-    var lvl1 = (d.regions || []).filter(function (r) { return r.level === 1; });
-    keepScroll(r1Row, function () {
-      r1Row.appendChild(makeTab('All', (d.spots || []).length, !S.r1, function () { selectRegion('', ''); }));
-      lvl1.forEach(function (r) {
-        r1Row.appendChild(makeTab(r.name, r.count, S.r1 === r.id, function () { selectRegion(r.id, ''); }));
-      });
-    });
-    r1Row.hidden = lvl1.length === 0;
-    var kids = S.r1 ? (d.regions || []).filter(function (r) { return r.level === 2 && r.parent === S.r1; }) : [];
-    if (!kids.length) { r2Row.hidden = true; r2Row.textContent = ''; return; }
-    r2Row.hidden = false;
-    keepScroll(r2Row, function () {
-      var parent = regionById[S.r1];
-      r2Row.appendChild(makeTab('All ' + (parent ? parent.name : ''), parent ? parent.count : null, !S.r2, function () { selectRegion(S.r1, ''); }));
-      kids.forEach(function (r) {
-        r2Row.appendChild(makeTab(r.name, r.count, S.r2 === r.id, function () { selectRegion(S.r1, r.id); }));
-      });
-    });
+    if (!d) return 'Everywhere';
+    if (S.dest) return S.dest;
+    var r = regionById[S.r2] || regionById[S.r1];
+    return r ? r.name : 'All ' + d.name;
+  }
+  function renderWhere() {
+    $('whereVal').textContent = whereLabel();
+    $('whereBtn').disabled = !S.data;
   }
 
   function renderCats() {
@@ -276,9 +266,79 @@
     });
   }
 
-  function selectRegion(r1, r2) {
-    S.r1 = r1; S.r2 = r2;
-    refresh();
+  // Every place a user can narrow to: regions (both levels) plus destination names that are not
+  // already a region name. Built once per country file.
+  var whereCache = {};
+  function whereOptions() {
+    var d = S.data;
+    if (whereCache[S.cc]) return whereCache[S.cc];
+    var opts = [], seen = {};
+    (d.regions || []).forEach(function (r) {
+      var p = r.level === 2 ? regionById[r.parent] : null;
+      opts.push({ name: r.name, sub: p ? p.name : 'Region', n: r.count || 0,
+        r1: r.level === 2 ? r.parent : r.id, r2: r.level === 2 ? r.id : '', dest: '' });
+      seen[norm(r.name)] = true;
+    });
+    var dests = {};
+    (d.spots || []).forEach(function (s) {
+      if (!s.dest || seen[norm(s.dest)]) return;
+      var e = dests[s.dest] || (dests[s.dest] = { n: 0, r: regionName(s) });
+      e.n++;
+    });
+    Object.keys(dests).forEach(function (k) {
+      opts.push({ name: k, sub: dests[k].r || 'Place', n: dests[k].n, r1: '', r2: '', dest: k });
+    });
+    whereCache[S.cc] = opts;
+    return opts;
+  }
+
+  function openWhereSheet() {
+    if (!S.data) return;
+    openSheet('Where in ' + S.data.name + '?', function (body) {
+      var box = el('input', 'where-q');
+      box.type = 'search';
+      box.placeholder = 'Type a city or region';
+      box.setAttribute('aria-label', 'Filter places');
+      box.autocomplete = 'off';
+      var list = el('div', 'where-list');
+      body.appendChild(box);
+      body.appendChild(list);
+      function pick(o) {
+        closeSheet();
+        S.r1 = o ? o.r1 : ''; S.r2 = o ? o.r2 : ''; S.dest = o ? o.dest : '';
+        refresh();
+      }
+      function row(label, sub, n, cur, o) {
+        var b = el('button', 'crow');
+        b.type = 'button';
+        var cn = el('span', 'cn', label);
+        if (sub) cn.appendChild(el('small', 'cs', sub));
+        b.appendChild(cn);
+        if (n !== null) b.appendChild(el('span', 'cm', n + ' spots'));
+        if (cur) b.setAttribute('aria-current', 'true');
+        b.addEventListener('click', function () { pick(o); });
+        return b;
+      }
+      function paint() {
+        var q = norm(box.value.trim());
+        list.textContent = '';
+        var all = !S.r1 && !S.r2 && !S.dest;
+        if (!q) list.appendChild(row('All ' + S.data.name, '', (S.data.spots || []).length, all, null));
+        var opts = whereOptions().filter(function (o) { return !q || norm(o.name).indexOf(q) >= 0; });
+        if (!q) opts = opts.filter(function (o) { return !o.dest; });
+        opts.sort(function (a, b) {
+          var as = q && norm(a.name).indexOf(q) === 0 ? 0 : 1, bs = q && norm(b.name).indexOf(q) === 0 ? 0 : 1;
+          return as - bs || b.n - a.n;
+        });
+        opts.slice(0, 50).forEach(function (o) {
+          var cur = o.dest ? S.dest === o.dest : (o.r2 ? S.r2 === o.r2 : (!S.r2 && !S.dest && S.r1 === o.r1));
+          list.appendChild(row(o.name, o.sub, o.n, cur, o));
+        });
+        if (q && !opts.length) list.appendChild(el('p', 'meta', 'No place matches "' + box.value.trim() + '".'));
+      }
+      box.addEventListener('input', paint);
+      paint();
+    });
   }
 
   /* ---------- feed ---------- */
@@ -288,7 +348,7 @@
     $('toolbar').hidden = saved;
     $('savedBtn').setAttribute('aria-pressed', saved ? 'true' : 'false');
     $('savedCount').textContent = String(savedCount());
-    if (!saved) { renderRegions(); renderCats(); }
+    if (!saved) { renderWhere(); renderCats(); }
     $('sortLocal').setAttribute('aria-pressed', S.sort === 'local' ? 'true' : 'false');
     $('sortTop').setAttribute('aria-pressed', S.sort === 'top' ? 'true' : 'false');
     $('sortNear').setAttribute('aria-pressed', S.sort === 'near' ? 'true' : 'false');
@@ -345,26 +405,36 @@
   }, 100), { passive: true });
 
   /* ---------- card ---------- */
-  function buildMedia(spot) {
-    var wrap = el('div', 'media cat-' + spot.cat);
+  // A photo card keeps a capped photo; everything else is a compact row with no media block.
+  function buildMedia(spot, card, item) {
     var src = safeImg(spot.img);
-    function placeholder() {
-      wrap.className = 'media ph cat-' + spot.cat;
-      wrap.textContent = catLabel(spot.cat);
-    }
-    if (src) {
-      var img = document.createElement('img');
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      img.alt = '';
-      img.referrerPolicy = 'no-referrer';
-      img.addEventListener('error', function () { wrap.textContent = ''; placeholder(); });
-      img.src = src;
-      wrap.appendChild(img);
-    } else {
-      placeholder();
-    }
+    if (!src) return null;
+    var wrap = el('div', 'media');
+    var img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.alt = '';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', function () {
+      wrap.remove();
+      card.classList.add('compact');
+      kmInMeta(card.querySelector('.meta'), item);
+    });
+    img.src = src;
+    wrap.appendChild(img);
     return wrap;
+  }
+  function kmInMeta(meta, item) {
+    if (!meta || typeof item.km !== 'number' || meta.querySelector('.dist')) return;
+    meta.appendChild(el('span', 'dist', fmtKm(item.km)));
+  }
+
+  function linkEl(p, cls) {
+    var a = el('a', cls, p.name);
+    a.href = p.href;
+    // an app link in a new window leaves a blank tab behind (or nothing, in a standalone PWA)
+    if (!p.app) { a.target = '_blank'; a.rel = 'noopener'; }
+    return a;
   }
 
   function buildCard(item) {
@@ -374,22 +444,37 @@
     hit.type = 'button';
     hit.setAttribute('aria-expanded', 'false');
 
-    var media = buildMedia(spot);
-    if (typeof item.km === 'number') media.appendChild(el('span', 'dist', fmtKm(item.km)));
-    hit.appendChild(media);
+    var media = buildMedia(spot, card, item);
+    if (media) {
+      if (typeof item.km === 'number') media.appendChild(el('span', 'photo-dist', fmtKm(item.km)));
+      hit.appendChild(media);
+    } else {
+      card.classList.add('compact');
+    }
 
     var body = el('div', 'body');
-    body.appendChild(el('span', 'catlabel', catLabel(spot.cat)));
+    var top = el('div', 'topline');
+    top.appendChild(el('span', 'catlabel', catLabel(spot.cat)));
+    var areaText = [spot.dest, item.rn].filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(' \u00b7 ');
+    var meta = el('span', 'meta', areaText);
+    top.appendChild(meta);
+    if (!media) kmInMeta(meta, item);
+    top.appendChild(el('span', 'more', 'Details'));
+    body.appendChild(top);
     body.appendChild(el('h3', 'name', spot.name));
     if (spot.local) body.appendChild(el('p', 'local', spot.local));
-    var meta = [spot.dest, item.rn].filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(' · ');
-    if (meta) body.appendChild(el('p', 'meta', meta));
     if (spot.desc) body.appendChild(el('p', 'desc', spot.desc));
-    var more = el('div', 'more', 'Details');
-    body.appendChild(more);
     hit.appendChild(body);
     card.appendChild(hit);
 
+    // One tap to the local platform, no need to open Details first (the core action).
+    var data = S.cache[item.cc];
+    if (data) {
+      var first = platformLinks(spot, data, {})[0];
+      if (first) card.appendChild(linkEl(first, 'qlink'));
+    }
+
+    var more = top.querySelector('.more');
     var detail = null;
     hit.addEventListener('click', function () {
       var open = hit.getAttribute('aria-expanded') !== 'true';
@@ -528,10 +613,7 @@
       var built = platformLinks(item.spot, data, regs);
       if (!built.length) { box.appendChild(el('p', 'meta', 'No local platform links for this spot.')); return; }
       built.forEach(function (p, i) {
-        var a = el('a', 'plat' + (i === 0 ? ' primary' : ''), p.name);
-        a.href = p.href;
-        // an app link in a new window leaves a blank tab behind (or nothing, in a standalone PWA)
-        if (!p.app) { a.target = '_blank'; a.rel = 'noopener'; }
+        var a = linkEl(p, 'plat' + (i === 0 ? ' primary' : ''));
         if (p.app) a.appendChild(el('small', '', 'app'));
         else if (p.verified === 'login') a.appendChild(el('small', '', 'sign-in'));
         box.appendChild(a);
@@ -594,8 +676,8 @@
     if (e.key === 'Escape' && !$('sheet').hidden) closeSheet();
   });
 
-  function openCountrySheet() {
-    openSheet('Choose a country', function (body) {
+  function openCountrySheet(first) {
+    openSheet(first === true ? 'Where are you going?' : 'Choose a country', function (body) {
       ((S.index && S.index.countries) || []).forEach(function (c) {
         var b = el('button', 'crow');
         b.type = 'button';
@@ -673,8 +755,9 @@
     writeStr(K_COUNTRY, cc);
     $('countryFlag').textContent = c.flag || '';
     $('countryName').textContent = c.name;
-    S.r1 = ''; S.r2 = ''; S.cat = '';
+    S.r1 = ''; S.r2 = ''; S.dest = ''; S.cat = '';
     S.data = null;
+    renderWhere();
     $('feed').textContent = '';
     $('status').textContent = 'Loading ' + c.name + '...';
     var mine = cc;
@@ -688,7 +771,7 @@
     }).catch(function () {
       if (S.cc !== mine) return;
       $('status').textContent = 'Could not load ' + c.name + '. Open it once while online and it will work offline after that.';
-      renderRegions(); renderCats();
+      renderWhere(); renderCats();
     });
   }
 
@@ -721,7 +804,8 @@
   }
 
   function boot() {
-    $('countryBtn').addEventListener('click', openCountrySheet);
+    $('countryBtn').addEventListener('click', function () { openCountrySheet(); });
+    $('whereBtn').addEventListener('click', openWhereSheet);
     $('srcBtn').addEventListener('click', openSourcesSheet);
     $('sortLocal').addEventListener('click', setSortLocal);
     $('sortTop').addEventListener('click', setSortTop);
@@ -744,8 +828,12 @@
       var enabled = countries.filter(function (c) { return c.enabled; });
       if (!enabled.length) { $('status').textContent = 'No countries are available yet.'; return; }
       var want = readStr(K_COUNTRY);
-      var pick = enabled.filter(function (c) { return c.cc === want; })[0] || enabled[0];
-      loadCountry(pick.cc);
+      var pick = enabled.filter(function (c) { return c.cc === want; })[0];
+      if (pick) { loadCountry(pick.cc); return; }
+      // First open (or a stored country that no longer exists): ask, never assume.
+      $('countryName').textContent = 'Choose';
+      $('status').textContent = 'Pick a country to start.';
+      openCountrySheet(true);
     }).catch(function () {
       $('status').textContent = 'Could not load Ulu data. Check your connection and reopen the app.';
     });

@@ -27,9 +27,13 @@
     <button id="savedBtn" class="btn-saved" type="button" aria-pressed="false">Saved <span id="savedCount">0</span></button>
   </div>
   <div id="filters">
-    <div id="r1Row" class="tabs" role="tablist" aria-label="Region"></div>
-    <div id="r2Row" class="tabs tabs-sub" role="tablist" aria-label="Province" hidden></div>
-    <div id="catRow" class="tabs" role="tablist" aria-label="Category"></div>
+    <div class="frow">
+      <button id="whereBtn" class="btn-where" type="button" aria-haspopup="dialog" disabled>
+        <span class="wl">Where</span>
+        <span id="whereVal" class="wv">Everywhere</span>
+      </button>
+      <div id="catRow" class="tabs" role="tablist" aria-label="Category"></div>
+    </div>
   </div>
 </header>
 
