@@ -174,6 +174,20 @@ class AttachTest(unittest.TestCase):
         for s, b in zip(spots, before):
             self.assertEqual({k: v for k, v in s.items() if k != "signals"}, {k: v for k, v in b.items() if k != "signals"})
 
+    def test_area_matches_can_be_switched_off(self):
+        # JP: the holdout trusted its area matches, but osm_check failed with them (top-30 foreign
+        # 20% vs 12% base). Point matches still count; near-miss: the same entry without "via".
+        self.write("2026-10-17")
+        path = os.path.join(self.root, "data", "osm", "TH.json")
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["spots"][osm.spot_key(self.plain)]["via"] = "area"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        osm.attach([self.food, self.plain], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None, use_area=False)
+        self.assertEqual(self.food["signals"], {"osm_local": 1})
+        self.assertEqual(self.plain["signals"], {})
+
     def test_culture_is_never_given_osm(self):
         self.write("2026-10-17")
         osm.attach([self.temple], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)

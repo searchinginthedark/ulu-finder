@@ -381,10 +381,12 @@ def parse_md5(text):
 
 # ---------- the build reads this (no pyosmium needed) ----------
 
-def attach(spots, cc, root=ROOT, today=None, log=print):
+def attach(spots, cc, root=ROOT, today=None, log=print, use_area=True):
     """Add osm_* signals from data/osm/<CC>.json. Returns the extract date, or None when there is
     no usable file. A missing or too-old file means the build simply has no D this week; it never
-    reads as 'matched nothing', and it never touches any other field."""
+    reads as 'matched nothing', and it never touches any other field.
+    use_area=False skips area matches (countries.json `osm_area: false`): the holdout says WHICH
+    place, tools/osm_check.py says whether scoring it ranks local food higher; both must pass."""
     path = os.path.join(root, "data", "osm", f"{cc}.json")
     if not os.path.exists(path):
         return None
@@ -406,7 +408,7 @@ def attach(spots, cc, root=ROOT, today=None, log=print):
         if s.get("cat") not in FOOD:
             continue
         e = entries.get(spot_key(s))
-        if not e:
+        if not e or (not use_area and e.get("via") == "area"):
             continue
         sig = s.setdefault("signals", {})
         # The score uses ONLY the local-language name. Measured on 330 matched TH food spots
