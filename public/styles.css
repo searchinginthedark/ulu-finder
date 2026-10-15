@@ -152,6 +152,20 @@ a{color:var(--accent)}
 .save[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .srcl{font-size:13px;display:inline-flex;align-items:center;min-height:44px}
 .sentinel{height:1px}
+.tripbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0}
+.tripnote{font-size:13px;color:var(--muted)}
+.grp{display:flex;justify-content:space-between;gap:8px;margin:10px 0 0;padding-bottom:4px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+.grp:first-child{margin-top:0}
+.grp .n{font-weight:400;color:var(--muted)}
+.mlink{
+  flex:1 1 100%;display:flex;align-items:center;min-height:44px;padding:0 12px;
+  border-top:1px solid var(--line);font-size:14px;font-weight:600;text-decoration:none;
+}
+.share-url{width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);font:13px/1.4 ui-monospace,Consolas,monospace;resize:none;overflow-wrap:anywhere}
+.sheet-actions{display:flex;gap:8px;margin-top:8px}
+.btn-solid,.btn-line{flex:1;min-height:44px;padding:0 14px;border-radius:var(--radius);border:1px solid var(--accent);font-weight:600}
+.btn-solid{background:var(--accent);color:var(--on-accent)}
+.btn-line{background:transparent;color:var(--accent)}
 
 .foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
 .foot p{margin:0 0 4px}

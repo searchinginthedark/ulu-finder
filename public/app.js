@@ -148,6 +148,15 @@
   }
   function savedKey(cc, id) { return cc + ':' + id; }
   function savedCount() { return Object.keys(S.saved).length; }
+  function cmp(a, b) { a = String(a || ''); b = String(b || ''); return a < b ? -1 : a > b ? 1 : 0; }
+  function countryEntry(cc) {
+    var r = null;
+    ((S.index && S.index.countries) || []).forEach(function (x) { if (x.cc === cc) r = x; });
+    return r;
+  }
+  function countryName(cc) { var c = countryEntry(cc); return c ? c.name : cc; }
+  // City/destination a saved spot belongs to; spots with neither fall under their region.
+  function tripGroup(e) { return e.spot.dest || e.rn || 'Other places'; }
 
   /* ---------- data loading ---------- */
   function fetchJson(url) {
@@ -192,7 +201,13 @@
         if (!q) return true;
         var s = e.spot;
         return norm(s.name).indexOf(q) >= 0 || norm(s.local).indexOf(q) >= 0 || norm(s.dest).indexOf(q) >= 0;
-      }).map(function (e) { return { spot: e.spot, cc: e.cc, rn: e.rn || '' }; });
+      }).map(function (e) { return { spot: e.spot, cc: e.cc, rn: e.rn || '', grp: tripGroup(e) }; });
+      // Trip list: country, then city/destination, then name. Stable and deterministic.
+      items.sort(function (a, b) {
+        return cmp(countryName(a.cc), countryName(b.cc)) || cmp(a.grp, b.grp) || cmp(a.spot.name, b.spot.name);
+      });
+      S.groupN = {};
+      items.forEach(function (it) { var k = it.cc + '|' + it.grp; S.groupN[k] = (S.groupN[k] || 0) + 1; });
       return items;
     }
     if (!S.data) return [];
@@ -392,6 +407,7 @@
     var saved = S.view === 'saved';
     $('filters').hidden = saved;
     $('toolbar').hidden = saved;
+    $('tripbar').hidden = !(saved && savedCount());
     $('savedBtn').setAttribute('aria-pressed', saved ? 'true' : 'false');
     $('savedCount').textContent = String(savedCount());
     if (!saved) { renderWhere(); renderCats(); }
@@ -407,6 +423,7 @@
     $('rank').hidden = !rn;
     S.shown = 0;
     S.capped = true;
+    S.lastGroup = '';
     S.gen++;
     $('feed').textContent = '';
     var st = $('status');
@@ -431,7 +448,21 @@
     var feed = $('feed');
     var end = Math.min(limit(), S.shown + PAGE);
     var frag = document.createDocumentFragment();
-    for (var i = S.shown; i < end; i++) frag.appendChild(buildCard(S.list[i]));
+    for (var i = S.shown; i < end; i++) {
+      var it = S.list[i];
+      if (S.view === 'saved') {
+        var gk = it.cc + '|' + it.grp;
+        if (gk !== S.lastGroup) {
+          S.lastGroup = gk;
+          var h = el('h3', 'grp');
+          var c = countryEntry(it.cc);
+          h.appendChild(el('span', '', ((c && c.flag) ? c.flag + ' ' : '') + countryName(it.cc) + ' › ' + it.grp));
+          h.appendChild(el('span', 'n', String(S.groupN[gk] || '')));
+          frag.appendChild(h);
+        }
+      }
+      frag.appendChild(buildCard(it));
+    }
     feed.appendChild(frag);
     S.shown = end;
     var btn = $('moreBtn');
@@ -539,6 +570,15 @@
     if (data) {
       var first = platformLinks(spot, data, {})[0];
       if (first) card.appendChild(linkEl(first, 'qlink'));
+    }
+
+    // On the ground the trip list is for navigating: one tap from a saved spot to a map.
+    if (S.view === 'saved') {
+      var ml = el('a', 'mlink', 'Open in Google Maps');
+      ml.href = mapsUrl(spot, item.cc);
+      ml.target = '_blank';
+      ml.rel = 'noopener';
+      card.appendChild(ml);
     }
 
     var more = top.querySelector('.more');
@@ -725,6 +765,168 @@
     return out;
   }
 
+  /* ---------- trip list: maps, share link, import ---------- */
+  function mapsUrl(spot, cc) {
+    var q;
+    if (typeof spot.lat === 'number' && typeof spot.lon === 'number') q = spot.lat + ',' + spot.lon;
+    else q = [spot.name, spot.dest, countryName(cc)].filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(' ');
+    return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  }
+
+  // The link carries only spot ids: "#trip=TH.id,id;VN.id". The data stays in the URL hash, which
+  // browsers never send to a server. The receiving app looks the ids up in its own data files.
+  var TRIP_MAX = 500;
+  function tripHash() {
+    var by = {};
+    Object.keys(S.saved).forEach(function (k) {
+      var e = S.saved[k];
+      if (!e || !e.spot || !e.cc) return;
+      (by[e.cc] = by[e.cc] || []).push(e.spot.id);
+    });
+    return '#trip=' + Object.keys(by).sort().map(function (cc) { return cc + '.' + by[cc].join(','); }).join(';');
+  }
+  function tripUrl() { return location.origin + location.pathname + tripHash(); }
+  // -> [{cc, id}] or null when the hash is not a trip link. Anything malformed is dropped.
+  function parseTrip(hash) {
+    var m = /^#trip=(.*)$/.exec(hash || '');
+    if (!m) return null;
+    var out = [];
+    m[1].split(';').forEach(function (grp) {
+      var p = grp.split('.');
+      if (!/^[A-Z]{2}$/.test(p[0] || '')) return;
+      (p[1] || '').split(',').forEach(function (id) {
+        if (/^[A-Za-z0-9_-]{1,40}$/.test(id) && out.length < TRIP_MAX) out.push({ cc: p[0], id: id });
+      });
+    });
+    return out;
+  }
+
+  function copyText(text, input) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (res, rej) {
+      try { input.select(); document.execCommand('copy') ? res() : rej(new Error('copy')); } catch (e) { rej(e); }
+    });
+  }
+
+  function openShareSheet() {
+    if (!savedCount()) return;
+    openSheet('Share trip list', function (body) {
+      var url = tripUrl();
+      body.appendChild(el('p', '', savedCount() + ' spots. Anyone who opens this link can add them to their own list. ' +
+        'Keep it as your backup too: opening it after a reinstall brings your list back.'));
+      var box = el('textarea', 'share-url');
+      box.readOnly = true;
+      box.rows = 4;
+      box.value = url;
+      box.setAttribute('aria-label', 'Trip list link');
+      box.addEventListener('focus', function () { box.select(); });
+      body.appendChild(box);
+      var msg = el('p', 'meta');
+      msg.setAttribute('role', 'status');
+      var row = el('div', 'sheet-actions');
+      var cp = el('button', 'btn-solid', 'Copy link');
+      cp.type = 'button';
+      cp.addEventListener('click', function () {
+        copyText(url, box).then(function () { msg.textContent = 'Link copied.'; },
+          function () { box.select(); msg.textContent = 'Could not copy. The link is selected: copy it by hand.'; });
+      });
+      row.appendChild(cp);
+      if (navigator.share) {
+        var sh = el('button', 'btn-line', 'Share...');
+        sh.type = 'button';
+        sh.addEventListener('click', function () {
+          navigator.share({ title: 'My Ulu trip list', url: url }).catch(function () { /* cancelled */ });
+        });
+        row.appendChild(sh);
+      }
+      body.appendChild(row);
+      body.appendChild(msg);
+      body.appendChild(el('p', 'meta', 'The list lives in the link itself. Nothing is sent to a server.'));
+    });
+  }
+
+  // Resolve ids against each country file, then ask. Never replaces existing saves: only new keys are added.
+  function offerImport(entries) {
+    var ccs = {};
+    entries.forEach(function (e) { ccs[e.cc] = true; });
+    var ids = Object.keys(ccs);
+    return Promise.all(ids.map(function (cc) {
+      return ensureCountry(cc).then(function (d) { return d; }, function () { return null; });
+    })).then(function (files) {
+      var data = {};
+      ids.forEach(function (cc, i) { data[cc] = files[i]; });
+      var found = [], fresh = [], missing = 0;
+      entries.forEach(function (e) {
+        var d = data[e.cc], spot = null;
+        if (d) (d.spots || []).some(function (s) { if (s.id === e.id) { spot = s; return true; } return false; });
+        if (!spot) { missing++; return; }
+        var rr = (d.regions || []).filter(function (r) { return r.id === spot.r2; })[0] ||
+          (d.regions || []).filter(function (r) { return r.id === spot.r1; })[0];
+        var item = { cc: e.cc, spot: spot, rn: rr ? rr.name : '' };
+        found.push(item);
+        if (!S.saved[savedKey(e.cc, e.id)]) fresh.push(item);
+      });
+      if (!found.length) {
+        openSheet('Shared trip list', function (body) {
+          body.appendChild(el('p', '', 'None of these spots could be found. The link may be from an older version, ' +
+            'or a country it names is not available offline yet.'));
+        });
+        return;
+      }
+      openSheet('Shared trip list', function (body) {
+        body.appendChild(el('p', '', fresh.length
+          ? 'Add ' + fresh.length + ' spot' + (fresh.length === 1 ? '' : 's') + ' to your saved list?' +
+            (found.length > fresh.length ? ' ' + (found.length - fresh.length) + ' already saved.' : '')
+          : 'All ' + found.length + ' spots are already in your saved list.'));
+        if (missing) body.appendChild(el('p', 'meta', missing + ' spot' + (missing === 1 ? '' : 's') +
+          ' in the link could not be found and will be skipped.'));
+        body.appendChild(el('p', 'meta', 'Your existing saved spots are kept either way.'));
+        var row = el('div', 'sheet-actions');
+        if (fresh.length) {
+          var add = el('button', 'btn-solid', 'Add ' + fresh.length);
+          add.type = 'button';
+          add.addEventListener('click', function () {
+            fresh.forEach(function (it) { S.saved[savedKey(it.cc, it.spot.id)] = it; });
+            write(K_SAVED, S.saved);
+            closeSheet();
+            S.view = 'saved';
+            refresh();
+            loadSavedCountries();
+          });
+          row.appendChild(add);
+        }
+        var no = el('button', 'btn-line', fresh.length ? 'Not now' : 'Close');
+        no.type = 'button';
+        no.addEventListener('click', closeSheet);
+        row.appendChild(no);
+        body.appendChild(row);
+      });
+    });
+  }
+
+  function handleTripHash() {
+    var entries = parseTrip(location.hash);
+    if (!entries) return;
+    // Drop the hash first so a reload never re-prompts, then ask.
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+    if (!entries.length) return;
+    offerImport(entries);
+  }
+
+  // Saved spots may sit in countries not opened this session; their local-platform links need the file.
+  function loadSavedCountries() {
+    var need = {};
+    Object.keys(S.saved).forEach(function (k) { var e = S.saved[k]; if (e && e.cc && !S.cache[e.cc]) need[e.cc] = true; });
+    var ccs = Object.keys(need);
+    if (!ccs.length || !S.index) return;
+    Promise.all(ccs.map(function (cc) { return ensureCountry(cc).then(function () { return 1; }, function () { return 0; }); }))
+      .then(function (r) {
+        if (S.view === 'saved' && r.some(function (x) { return x; })) refresh();
+      });
+  }
+
   /* ---------- sheets ---------- */
   var lastFocus = null;
   function openSheet(title, build) {
@@ -736,9 +938,13 @@
     $('sheet').hidden = false;
     $('sheetClose').focus();
   }
+  var afterClose = null;
   function closeSheet() {
     $('sheet').hidden = true;
     if (lastFocus && lastFocus.focus) lastFocus.focus();
+    var f = afterClose;
+    afterClose = null;
+    if (f) f();
   }
   $('sheetClose').addEventListener('click', closeSheet);
   $('sheetBackdrop').addEventListener('click', closeSheet);
@@ -884,7 +1090,9 @@
     $('savedBtn').addEventListener('click', function () {
       S.view = S.view === 'saved' ? 'feed' : 'saved';
       refresh();
+      if (S.view === 'saved') loadSavedCountries();
     });
+    $('shareBtn').addEventListener('click', openShareSheet);
     $('search').addEventListener('input', debounce(function () {
       S.q = $('search').value;
       refresh();
@@ -900,11 +1108,17 @@
       if (!enabled.length) { $('status').textContent = 'No countries are available yet.'; return; }
       var want = readStr(K_COUNTRY);
       var pick = enabled.filter(function (c) { return c.cc === want; })[0];
-      if (pick) { loadCountry(pick.cc); return; }
+      if (pick) { loadCountry(pick.cc); handleTripHash(); return; }
       // First open (or a stored country that no longer exists): ask, never assume.
       $('countryName').textContent = 'Choose';
       $('status').textContent = 'Pick a country to start.';
-      openCountrySheet(true);
+      // A shared trip link wins the first screen; declining it falls back to the picker.
+      if (/^#trip=/.test(location.hash)) {
+        afterClose = function () { if (!S.cc && S.view !== 'saved') openCountrySheet(true); };
+        handleTripHash();
+      } else {
+        openCountrySheet(true);
+      }
     }).catch(function () {
       $('status').textContent = 'Could not load Ulu data. Check your connection and reopen the app.';
     });
