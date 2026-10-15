@@ -130,7 +130,10 @@ What never reaches a file (`ulu/classify.py`, `excluded`; user rulings 2026-10-1
 - Listings that say they are closed about THEMSELVES ("PERMANENTLY CLOSED", "closed since 2020").
   Opening hours ("Closed on Mondays") and closed neighbours ("since X closed down") do not count.
 - International food chains (McDonald's, Starbucks, KFC, Hard Rock...). Home-grown chains stay.
-- Food listed under an airport article.
+- Food listed under an airport article, except Changi (locals go there to eat).
+- Generic rows that are not one place ("Various cafes in Bandar Sunway").
+
+`cafes` includes kopitiams, kedai kopi and kaya-toast places; a kopitiam food court is `markets`.
 
 ## Building a platform link (app side)
 

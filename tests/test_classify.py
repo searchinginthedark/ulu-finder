@@ -38,7 +38,12 @@ CASES = [
     ("drink", "Drink", "Kopi Corner (formerly Bar 99)", "Coffee and kaya toast.", "cafes"),  # near-miss: old name a bar
     ("drink", "Drink", "Baby Blue Cafe and Bar", "Coffee and cocktails.", "cafes"),   # near-miss: coffee in desc
     ("drink", "Drink", "Jing-Si Tea House", "A quiet tea room.", "cafes"),
-    ("eat", "Eat", "Killiney Kopitiam", "Kaya toast and coffee.", "dine"),             # near-miss: kopitiam is a meal
+    # kopitiams are Cafes (user ruling 2026-10-15), the food-court kind is Markets
+    ("eat", "Eat", "Killiney Kopitiam", "Kaya toast and coffee.", "cafes"),
+    ("eat", "Eat", "Ya Kun Kaya Toast", "Singapore's classic breakfast.", "cafes"),
+    ("eat", "Eat", "Kedai Kopi Sin Yoon Loong", "", "cafes"),
+    ("eat", "Eat", "Kopitiam", "A chain of 24-hour food courts.", "markets"),         # near-miss: SG food-court chain
+    ("eat", "Eat", "Hock Kee Kopitiam", "Famous for its curry mee and char siew rice.", "dine"),  # meals, no kopi
     ("eat", "Eat", "Oyster cakes", "Fried savoury snack.", "dine"),                    # near-miss: savoury cake
     ("eat", "Eat", "Bánh Mì Bà Lan", "Sandwiches.", "dine"),                           # near-miss: bánh is not a cafe
     ("eat", "Eat", "Rock Bottom Bar", "Sports bar with a menu.", "dine"),              # Eat section keeps its pub-restaurants
@@ -118,6 +123,8 @@ EXCLUDED = [
     ("dine", "Subway Noodle House", "", "Taipei", "chain"),                            # accepted false positive, rare
     ("dine", "Nasi Lemak Stall", "", "Kuala Lumpur International Airport", "airport"),
     ("sights", "Jewel Changi", "Indoor waterfall.", "Changi Airport", None),           # near-miss: not food
+    ("dine", "Jumbo Seafood Jewel", "Chilli crab.", "Changi Airport", None),           # Changi food stays (user ruling)
+    ("dine", "Nasi Lemak Kukus", "", "Ninoy Aquino International Airport", "airport"),
     ("dine", "Airport Road Hawker", "", "Penang", None),                               # near-miss: "airport" in the name only
     ("shopping", "Starbucks merchandise", "", "Seoul", None),                          # near-miss: chains only drop in food
     ("cafes", "Gloria Jean's Coffee", "", "Kuala Lumpur", "chain"),

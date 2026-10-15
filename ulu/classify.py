@@ -41,11 +41,14 @@ NOT_HERITAGE = _rx([r"resorts?", r"stadium", r"sports?", r"golf", r"adventures?"
                     r"theme park", r"water ?park", r"amusement park", r"swimming pool", r"circuit", r"race ?track",
                     r"speedway", r"hotel", r"mall"])
 EATERY = _rx([r"restaurants?", r"restoran", r"seafood", r"kitchen", r"eatery", r"nasi", r"mee", r"noodles?",
-              r"steamboat", r"dim sum", r"kopitiam", r"kedai kopi"])
+              r"steamboat", r"dim sum"])
+# Kopitiam / kedai kopi / kaya toast are Cafes (user ruling 2026-10-15: kopi and toast is the point),
+# except the food-court kind ("Kopitiam" the SG food-court chain), which is Markets.
+KOPITIAM = _rx([r"kopitiams?", r"kedai kopi", r"kaya toast"])
 # "Cafes & Desserts" means coffee, tea, bakes and sweets (user ruling 2026-10-15). Wikivoyage's Drink
 # section is mostly nightlife, and most real cafes sit under Eat, so the NAME decides, in both.
 # Not "cake"/"pastry" alone: Chinese "oyster cakes" and "scallion pork pastry" are savoury snacks.
-CAFE = _rx([r"caf[eé]s?", r"kafe", r"coffee", r"kopi", r"espresso", r"roaster(?:y|s)?", r"c[aà] ph[eê]",
+CAFE = _rx([r"caf[eé]s?", r"kafe", r"coffee", r"kopi", r"kopitiams?", r"kedai kopi", r"kaya toast", r"espresso", r"roaster(?:y|s)?", r"c[aà] ph[eê]",
             r"bakery", r"bakeries", r"bakehouse", r"boulangerie", r"p[aâ]tisserie", r"cake ?(?:shop|house)s?", r"cakery",
             r"desserts?", r"gelato", r"gelateria", r"ice ?cream", r"bingsu", r"patbingsu", r"tea ?(?:house|room|bar)s?",
             r"teahouse", r"bubble tea", r"boba", r"milk tea", r"chè", r"kuih", r"kueh", r"toko roti", r"donuts?",
@@ -69,7 +72,7 @@ MEAL = _rx([r"restaurants?", r"hawker", r"food court", r"cuisine", r"food", r"bi
             r"satay", r"lunch", r"dinner", r"meals?"])
 # In a DESCRIPTION the bare word "cafe" proves nothing in MY/ID ("a small cafe that does lunch");
 # coffee, bakes and sweets do.
-CAFE_STRONG = _rx([r"coffee", r"kopi", r"espresso", r"roaster(?:y|s)?", r"c[aà] ph[eê]", r"bakery", r"bakeries",
+CAFE_STRONG = _rx([r"coffee", r"kopi", r"kaya", r"toast", r"espresso", r"roaster(?:y|s)?", r"c[aà] ph[eê]", r"bakery", r"bakeries",
                    r"bakehouse", r"boulangerie", r"p[aâ]tisserie", r"cakes?", r"desserts?", r"gelato", r"ice ?cream",
                    r"bingsu", r"tea", r"bubble tea", r"boba", r"chè", r"kuih", r"kueh", r"pastr(?:y|ies)", r"scones?",
                    r"donuts?", r"doughnuts?", r"waffles?", r"cr[eê]pes?", r"brunch", r"smoothies?", r"juices?"])
@@ -145,6 +148,8 @@ INTL_CHAIN = _rx([r"mcdonald'?s", r"kfc", r"kentucky fried chicken", r"burger ki
                   r"bubba gump", r"hard rock(?: cafe| café)?", r"planet hollywood", r"gloria jean'?s(?: coffees?)?",
                   r"dome caf[eé]"])
 AIRPORT = re.compile(r"\bairport\b|機場|机场|空港|공항|\bsân bay\b|\bbandara\b|\blapangan terbang\b", re.I)
+# Airports locals go to for food (user ruling 2026-10-15): Changi and Jewel are a Singapore outing.
+LOCAL_AIRPORT = re.compile(r"\bchangi\b", re.I)
 
 
 def excluded(cat, name, desc, dest):
@@ -156,7 +161,7 @@ def excluded(cat, name, desc, dest):
         return "closed"
     if cat in FOOD and INTL_CHAIN.search(name):
         return "chain"
-    if cat in FOOD and AIRPORT.search(dest or ""):
+    if cat in FOOD and AIRPORT.search(dest or "") and not LOCAL_AIRPORT.search(dest or ""):
         return "airport"
     return None
 
@@ -179,6 +184,8 @@ def classify(listing, name, desc):
         fname, fhead = strip_formerly(name), strip_formerly(head)
     if t == "eat":
         if MARKET.search(name):
+            return "markets"
+        if KOPITIAM.search(fname) and MARKET.search(fhead):
             return "markets"
         if EATERY.search(fname):
             return "dine"
