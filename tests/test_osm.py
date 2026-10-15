@@ -219,6 +219,137 @@ class LookupFallbackTest(unittest.TestCase):
         self.assertEqual(previous_lookups(None), (None, None))
 
 
+def town(dest="Chiang Mai", up=("Northern Thailand",)):
+    """Three geolocated listings 0-1 km north of TH_LAT: an area of radius AREA_MIN_R (2 km)
+    centred 500 m north. Sights, so they never compete for a food match themselves."""
+    return [dict(spot(f"Sight {i}", cat="sights", lat=offset(500 * i)), dest=dest, up=list(up)) for i in range(3)]
+
+
+def lost(name, cat="dine", dest="Chiang Mai", up=("Northern Thailand",), local=""):
+    """A food listing with no coordinates in that town."""
+    return dict(spot(name, cat=cat, lat=None, lon=None, local=local), dest=dest, up=list(up))
+
+
+def food_poi(names, north=0.0, amenity="restaurant", **tags):
+    return poi(names, north, amenity=amenity, **tags) if amenity else poi(names, north, **tags)
+
+
+class AreaMatchTest(unittest.TestCase):
+    """Real pairs from the 2026-10-15 TH/VN/MY holdout (geolocated food spots matched as if they
+    had no coords), each with a near-miss. The area match feeds osm_local only."""
+
+    def matched(self, s, pois, extra=()):
+        return osm.area_match(town() + list(extra) + [s], pois).get(osm.spot_key(s))
+
+    def test_name_inside_the_town(self):
+        self.assertIsNotNone(self.matched(lost("Somboon Seafood"), [food_poi(["สมบูรณ์โภชนา", "Somboon Seafood"], 1500)]))
+
+    def test_outside_the_town_is_no_match(self):
+        # near-miss: same name 2.6 km from the area's centre (radius 2 km)
+        self.assertIsNone(self.matched(lost("Somboon Seafood"), [food_poi(["Somboon Seafood"], 3100)]))
+
+    def test_spot_with_coords_is_left_to_point_match(self):
+        s = dict(spot("Somboon Seafood"), dest="Chiang Mai", up=["Northern Thailand"])
+        self.assertEqual(osm.area_match(town() + [s], [food_poi(["Somboon Seafood"], 1500)]), {})
+
+    def test_too_few_geolocated_listings_draw_no_area(self):
+        # near-miss of test_name_inside_the_town: two listings cannot outline a town
+        self.assertEqual(osm.area_match(town()[:2] + [lost("Somboon Seafood")], [food_poi(["Somboon Seafood"], 500)]), {})
+
+    def test_type_word_alone_is_not_a_name(self):
+        # measured: "Minburi Market" picked a stall mapped as "Market" 18 km away
+        self.assertIsNone(self.matched(lost("Minburi Market", cat="markets"), [food_poi(["Market"], 900, amenity="marketplace")]))
+        # near-miss: the distinctive word survives the type word
+        self.assertIsNotNone(self.matched(lost("Thewet Market", cat="markets"), [food_poi(["Thewet market"], 900, amenity="marketplace")]))
+
+    def test_town_name_is_not_the_place(self):
+        # measured: "Ao Nang Mosque Market" matched "Ao Nang Night Market"; only "mosque" says which
+        s = lost("Ao Nang Mosque Market", cat="markets", dest="Ao Nang", up=("Krabi Province",))
+        t = town("Ao Nang", ("Krabi Province",))
+        self.assertEqual(osm.area_match(t + [s], [food_poi(["Ao Nang Night Market"], 700, amenity="marketplace")]), {})
+        # near-miss: the same market under its own words
+        got = osm.area_match(t + [s], [food_poi(["Mosque Market Ao Nang"], 700, amenity="marketplace")])
+        self.assertIn(osm.spot_key(s), got)
+
+    def test_only_food_places(self):
+        # measured: "Kinnaree" matched a massage parlour, "Cafe de Moei" a resort
+        self.assertIsNone(self.matched(lost("Kinnaree"), [food_poi(["Kinnaree massage and massage"], 400, amenity=None, shop="massage")]))
+        self.assertIsNone(self.matched(lost("Kinnaree"), [food_poi(["Kinnaree"], 400, amenity=None, tourism="hotel")]))
+        # near-miss: the same name on a restaurant
+        self.assertIsNotNone(self.matched(lost("Kinnaree"), [food_poi(["Kinnaree"], 400)]))
+
+    def test_two_namesakes_are_ambiguous(self):
+        # branches or a common name: two places 900 m apart, no way to tell which
+        a, b = food_poi(["Uncle Don's"], 100), food_poi(["Uncle Don's"], 1000)
+        self.assertIsNone(self.matched(lost("Uncle Don's"), [a, b]))
+
+    def test_node_and_building_are_one_place(self):
+        # near-miss: the same place mapped twice, 40 m apart
+        a, b = food_poi(["Uncle Don's"], 100), food_poi(["Uncle Don's"], 140)
+        self.assertIsNotNone(self.matched(lost("Uncle Don's"), [a, b]))
+
+    def test_no_containment_across_a_town(self):
+        # measured: "Sinthorn Steak House" -> "Steak Bar & Grill" 8.5 km away via whole-word containment
+        self.assertIsNone(self.matched(lost("Sinthorn Steak House"), [food_poi(["Steak Bar & Grill"], 600)]))
+        self.assertIsNone(self.matched(lost("White House Bar", cat="cafes"), [food_poi(["White Lotus Restaurant"], 600)]))
+        # near-miss: the same place spelled a little differently
+        self.assertIsNotNone(self.matched(lost("News Steaks & Grill"), [food_poi(["News Steaks and Grill"], 600)]))
+
+    def test_fuzzy_must_hold_word_by_word(self):
+        # measured: "Restoran Shang Ji" -> "Restoran Huang Ji" (whole-string ratio 0.88)
+        self.assertIsNone(self.matched(lost("Restoran Shang Ji"), [food_poi(["Restoran Huang Ji"], 600)]))
+        self.assertIsNone(self.matched(lost("Ngoc Huong", cat="cafes"), [food_poi(["Ngọc Phụng", "Ngoc Phung"], 600, amenity="cafe")]))
+        # near-miss: one letter apart in every word is the same place
+        self.assertIsNotNone(self.matched(lost("Cha Arnon Coffee", cat="cafes"), [food_poi(["Cha Anon Cafe"], 600, amenity="cafe")]))
+
+    def test_one_short_word_is_not_enough(self):
+        # measured: "Suria Market" -> "Suria Food" and "Inn Lucky" -> "Lucky Bar", different places
+        self.assertIsNone(self.matched(lost("Suria Market", cat="markets"), [food_poi(["Suria Food"], 600)]))
+        self.assertIsNone(self.matched(lost("Inn Lucky"), [food_poi(["Lucky Bar"], 600, amenity="bar")]))
+        # near-miss: six letters is enough
+        self.assertIsNotNone(self.matched(lost("Pisces"), [food_poi(["Pisces - Bar & Restaurant"], 600)]))
+
+    def test_local_type_words(self):
+        # Malay "Restoran", Vietnamese "Quán": the measured near-misses were the same place
+        self.assertIsNotNone(self.matched(lost("Restaurant Al Fariz Maju"), [food_poi(["Restoran Al Fariz Maju"], 600)]))
+        self.assertIsNotNone(self.matched(lost("Legend Beer", cat="cafes"), [food_poi(["Quán Beer Legend"], 600, amenity="biergarten")]))
+        self.assertIsNotNone(self.matched(lost("Vasco's", cat="cafes"), [food_poi(["Quán Vasco's Bar and Lounge"], 600, amenity="nightclub")]))
+
+    def test_entries_mark_area_matches_and_touch_no_field(self):
+        s = lost("Somboon Seafood")
+        spots = town() + [s]
+        before = copy.deepcopy(spots)
+        entries = osm.build_entries(spots, [food_poi(["สมบูรณ์โภชนา", "Somboon Seafood"], 1500)], "th")
+        self.assertEqual(entries[osm.spot_key(s)], {"d": 2, "has": ["local_name"], "via": "area"})
+        # licence: an area match never hands a spot coordinates (or anything else)
+        self.assertEqual(spots, before)
+
+    def test_holdout_counts_picks_near_the_truth(self):
+        here = dict(spot("Somboon Seafood", lat=offset(1500)), dest="Chiang Mai", up=["Northern Thailand"])
+        moved = dict(spot("Uncle Don's", lat=offset(100)), dest="Chiang Mai", up=["Northern Thailand"])
+        pois = [food_poi(["Somboon Seafood"], 1550), food_poi(["Uncle Don's"], 1000)]  # 50 m vs 900 m off
+        self.assertEqual(osm.area_holdout(town() + [here, moved], pois), (2, 1))
+        self.assertEqual(here["lat"], offset(1500))  # the holdout hides coords on copies only
+
+    def test_trust_needs_precision_and_volume(self):
+        self.assertTrue(osm.area_trusted(100, 85))
+        self.assertFalse(osm.area_trusted(100, 84))   # near-miss: KR measured 70 of 98
+        self.assertFalse(osm.area_trusted(29, 29))    # near-miss: too few picks to judge
+
+    def test_untrusted_country_gets_point_matches_only(self):
+        s = lost("Somboon Seafood")
+        entries = osm.build_entries(town() + [s], [food_poi(["Somboon Seafood"], 1500)], "th", use_area=False)
+        self.assertEqual(entries, {})
+
+    def test_area_cells_cover_the_disc(self):
+        lat, lon, r = osm.areas(town())[("Chiang Mai", ("Northern Thailand",))]
+        self.assertEqual(r, osm.AREA_MIN_R)
+        cells = osm.area_cells([(lat, lon, r)])
+        edge = lat + (r - 50) / 111_320.0
+        self.assertIn((int(edge // osm.CELL), int(lon // osm.CELL)), cells)
+        self.assertNotIn((int((lat + 3 * r / 111_320.0) // osm.CELL), int(lon // osm.CELL)), cells)
+
+
 try:
     import osmium  # noqa: F401
     HAVE_OSMIUM = True

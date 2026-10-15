@@ -93,5 +93,55 @@ class BuildHelpersTest(unittest.TestCase):
             self.assertFalse(not_place(st), st)
 
 
+class WikidataCoordTest(unittest.TestCase):
+    """P625 fills coordinates only where the listing has none, and only near its destination."""
+
+    def spot(self, lat=None, lon=None, wd="Q1", dest_ll=(13.75, 100.49)):
+        return {"name": "Wat Pho", "wd": wd, "lat": lat, "lon": lon, "img": None, "alt": "", "dest_ll": dest_ll}
+
+    def test_parse_point(self):
+        from ulu.build import parse_point
+        self.assertEqual(parse_point("Point(100.4930 13.7465)"), (13.7465, 100.493))
+        self.assertEqual(parse_point("Point(-1.5e-3 51.5)"), (51.5, -0.0015))
+        # near-misses: another globe (the Moon), null island, garbage
+        self.assertIsNone(parse_point("<http://www.wikidata.org/entity/Q405> Point(23.47 0.67)"))
+        self.assertIsNone(parse_point("Point(0 0)"))
+        self.assertIsNone(parse_point(None))
+
+    def test_fills_missing_coords(self):
+        from ulu.build import enrich
+        s = self.spot()
+        enrich([s], {"Q1": {"links": 40, "coord": (13.7465, 100.493)}})
+        self.assertEqual((s["lat"], s["lon"]), (13.7465, 100.493))
+
+    def test_listing_coords_win(self):
+        # near-miss: the listing has its own coords; Wikidata never overrides an editor's pin
+        from ulu.build import enrich
+        s = self.spot(13.70, 100.50)
+        enrich([s], {"Q1": {"links": 40, "coord": (13.7465, 100.493)}})
+        self.assertEqual((s["lat"], s["lon"]), (13.70, 100.50))
+
+    def test_half_a_coordinate_is_none(self):
+        from ulu.build import enrich
+        s = self.spot(13.70, None)
+        enrich([s], {"Q1": {"links": 40, "coord": (13.7465, 100.493)}})
+        self.assertEqual((s["lat"], s["lon"]), (13.7465, 100.493))
+
+    def test_far_item_is_a_namesake(self):
+        from ulu.build import enrich
+        far = self.spot()
+        enrich([far], {"Q1": {"links": 3, "coord": (18.79, 98.98)}})   # Chiang Mai, ~590 km from Bangkok
+        self.assertIsNone(far["lat"])
+        near = self.spot()
+        enrich([near], {"Q1": {"links": 3, "coord": (14.10, 100.49)}})  # near-miss: ~39 km, inside 50
+        self.assertEqual(near["lat"], 14.10)
+
+    def test_destination_without_coords_accepts(self):
+        from ulu.build import enrich
+        s = self.spot(dest_ll=None)
+        enrich([s], {"Q1": {"links": 3, "coord": (18.79, 98.98)}})
+        self.assertEqual(s["lat"], 18.79)
+
+
 if __name__ == "__main__":
     unittest.main()

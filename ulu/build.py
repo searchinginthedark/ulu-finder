@@ -189,6 +189,7 @@ def page_spots(pid, page, path, titles):
         })
     for s in out:
         s.update({"dest": dest, "up": up, "r1": r1, "r2": r2, "dest_wd": page["wd"],
+                  "dest_ll": (page["lat"], page["lon"]) if page["lat"] is not None and page["lon"] is not None else None,
                   "id": hashlib.sha1(f"{title}|{s['cat']}|{s['name']}".encode()).hexdigest()[:10]})
     return out
 
@@ -213,8 +214,20 @@ def dedupe(spots):
 
 # ---------- Wikidata ----------
 
+def parse_point(wkt):
+    """'Point(100.49 13.75)' -> (13.75, 100.49). Items on another globe carry an IRI prefix
+    ('<http://www.wikidata.org/entity/Q405> Point(...)', the Moon): not a place on Earth."""
+    m = re.fullmatch(r"\s*Point\(\s*(-?[\d.]+(?:[eE]-?\d+)?)\s+(-?[\d.]+(?:[eE]-?\d+)?)\s*\)\s*", wkt or "")
+    if not m:
+        return None
+    lon, lat = float(m.group(1)), float(m.group(2))
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+        return None
+    return lat, lon
+
+
 def wikidata_facts(qids, lang):
-    """{qid: {links, img, label}} via SPARQL, 250 ids per query."""
+    """{qid: {links, img, label, coord}} via SPARQL, 250 ids per query."""
     facts = {}
     qids = sorted(set(q for q in qids if q))
     langs = [lang] if lang else []
@@ -223,10 +236,11 @@ def wikidata_facts(qids, lang):
         lab = ""
         if langs:
             lab = f'OPTIONAL {{ ?item rdfs:label ?lab FILTER(LANG(?lab) = "{langs[0]}") }}'
-        q = f"""SELECT ?item ?links (SAMPLE(?img) AS ?img) (SAMPLE(?lab) AS ?lab) WHERE {{
+        q = f"""SELECT ?item ?links (SAMPLE(?img) AS ?img) (SAMPLE(?lab) AS ?lab) (SAMPLE(?coord) AS ?coord) WHERE {{
   VALUES ?item {{ {values} }}
   OPTIONAL {{ ?item wikibase:sitelinks ?links }}
   OPTIONAL {{ ?item wdt:P18 ?img }}
+  OPTIONAL {{ ?item wdt:P625 ?coord }}
   {lab}
 }} GROUP BY ?item ?links"""
         for row in net.sparql(q):
@@ -235,7 +249,8 @@ def wikidata_facts(qids, lang):
             if img:
                 img = img.replace("http://", "https://", 1) + "?width=640"
             facts[qid] = {"links": int(row.get("links", {}).get("value", 0)), "img": img,
-                          "label": row.get("lab", {}).get("value", "")}
+                          "label": row.get("lab", {}).get("value", ""),
+                          "coord": parse_point(row.get("coord", {}).get("value"))}
         time.sleep(1)
     return facts
 
@@ -244,10 +259,22 @@ def has_non_ascii_letters(s):
     return any(ord(c) > 127 and c.isalpha() for c in s)
 
 
+# A listing's Wikidata item is editor-chosen; one far from its destination is the wrong item
+# (a namesake), and its coordinates would put the spot in another province.
+WD_COORD_MAX_KM = 50
+
+
 def enrich(spots, facts):
+    """Wikidata adds fame, photo and local label; and coordinates (P625, CC0) only to a listing
+    that has none of its own. OpenStreetMap never supplies coordinates (ODbL, see osm.py)."""
     for s in spots:
         f = facts.get(s["wd"], {})
         s["score"] = f.get("links", 0)
+        if (s["lat"] is None or s["lon"] is None) and f.get("coord"):
+            lat, lon = f["coord"]
+            a = s.get("dest_ll")
+            if a is None or osm.metres(a[0], a[1], lat, lon) <= WD_COORD_MAX_KM * 1000:
+                s["lat"], s["lon"] = lat, lon
         if not s["img"] and f.get("img"):
             s["img"] = f["img"]
         label = f.get("label", "")
@@ -415,7 +442,16 @@ def write_json(path, obj):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as f:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, path)
+    for attempt in range(5):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            # Windows only: a scanner or indexer briefly holding the target fails the rename
+            # (TW.json, 2026-10-15), which threw away a 45-minute build at the write step.
+            if attempt == 4:
+                raise
+            time.sleep(2)
 
 
 def main(argv=None):

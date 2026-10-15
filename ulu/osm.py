@@ -8,7 +8,8 @@ or thin out the Wikivoyage build: the previous week's file simply stays, with it
 
 Licence (ODbL, decided 2026-10-14, docs/handover-ulu-score.md 3.D): OpenStreetMap only ADDS
 osm_* signals to spots Ulu already has. It never writes a Wikivoyage field and never adds a spot;
-either would pull the CC BY-SA listings under ODbL share-alike.
+either would pull the CC BY-SA listings under ODbL share-alike. That includes coordinates: a food
+spot found by area_match() gets osm_local, never the OSM place's lat/lon.
 
 Exit 0 = every country written; 1 = some kept last week's file; 2 = none written.
 """
@@ -165,6 +166,196 @@ def match(spots, pois, radius=RADIUS, floor=SIM):
     return out
 
 
+# ---------- area match: food spots WITHOUT coords ----------
+# Half of TH's food listings have no coordinates, so match() never sees them. Here the anchor is
+# the spot's destination: the area its own geolocated listings cover. A whole town holds far more
+# namesakes than 150 m does, so the rules are stricter than match()'s (measured on TH 2026-10-15
+# by hiding the coords of geolocated food spots: plain match() rules picked a POI more than
+# 300 m from the true place 15% of the time, mostly through words like "Market" or "Restaurant").
+# The result is used for the osm_local SCORE only; it never gives a spot coordinates.
+AREA_MIN_R, AREA_MAX_R = 2000.0, 10000.0   # metres around the destination's median listing
+AREA_SPREAD = 1.5       # radius = 1.5 x the 90th-percentile distance of its listings, clamped
+AREA_MIN_SPOTS = 3      # fewer geolocated listings than this cannot outline an area
+AREA_CORE = 4           # distinctive characters left once type words are removed
+AREA_SOLO = 6           # ... and a ONE-word core needs this many: "Suria" and "Lucky" each named a
+                        # second, different place in the same town (TH/MY holdout). 7 lost a
+                        # third of TH's matches for half a point of precision.
+WORD_SIM = 0.85         # per-word floor inside area_similarity(): "Shang"/"Huang" is exactly 0.80
+SAME_PLACE = 150.0      # candidates closer than this are one place mapped twice (node + building)
+# Type words: they say what a place is, not which one. "Minburi Market" must not match a stall
+# mapped as "Market" 18 km away.
+GENERIC = frozenset("""
+a an the and of at by on in de del la le les el di da du
+restaurant restaurants resto ristorante eatery diner canteen kitchen bistro brasserie cafeteria
+cafe caffe coffee coffeeshop kopi tea teahouse bakery bakeshop patisserie dessert desserts
+bar bars pub pubs tavern lounge club beer brewery taproom wine
+market markets bazaar night floating fresh wet morning weekend walking street food foods
+court centre center hall plaza square mall complex
+shop store house home garden corner place spot stall stalls hawker hawkers kiosk
+grill bbq barbecue steakhouse seafood noodle noodles rice vegetarian vegan halal
+thai vietnamese malay chinese japanese korean indian italian western local original
+hotel inn resort guesthouse branch new old
+restoran rumah makan kedai warung gerai pasar medan selera kafe kopitiam mamak
+quan nha hang tiem cho
+krua raan ran talat talad
+izakaya shokudo
+""".split())   # last four lines: Malay/Indonesian, Vietnamese (accents off), Thai, Japanese
+
+
+# Only places that serve food or drink. Across a town, "Kinnaree" also names a massage parlour and
+# "Moei" a resort; the measured wrong picks were a hotel, a ferry pier, a studio, a vending machine.
+FOOD_AMENITY = frozenset(("restaurant", "cafe", "bar", "pub", "fast_food", "food_court", "marketplace",
+                          "ice_cream", "biergarten", "nightclub"))
+FOOD_SHOP = frozenset(("bakery", "coffee", "tea", "deli", "confectionery", "pastry", "beverages"))
+
+
+def is_food_poi(tags):
+    return tags.get("amenity") in FOOD_AMENITY or tags.get("shop") in FOOD_SHOP
+
+
+def core(name, drop=frozenset()):
+    """The distinctive part of a normalised name: type words (and `drop`, the destination's own
+    place-name words) removed. '' when nothing is left."""
+    return " ".join(w for w in name.split() if w not in GENERIC and w not in drop)
+
+
+def place_words(spot):
+    """Words of the spot's destination and the articles above it: in "Ao Nang Mosque Market" only
+    "mosque" says which market; "Ao Nang Night Market" shares the town, not the place."""
+    return frozenset(w for n in [spot.get("dest") or ""] + list(spot.get("up") or ()) for w in norm(n).split())
+
+
+def distinctive(c):
+    """Enough of a name left to identify one place in a town (AREA_CORE, AREA_SOLO)."""
+    n = len(c.replace(" ", ""))
+    return n >= AREA_CORE and (" " in c or n >= AREA_SOLO)
+
+
+def area_similarity(a, b):
+    """similarity() without its whole-word containment, and fuzzy only word by word.
+
+    Cores have already shed "Restaurant" and the town name, so what containment still catches
+    across a town is one shared word ("Sinthorn Steak" / "Steak", "Big C Extra" / "Big C").
+    A whole-string ratio passes names that differ in their only distinctive word ("Shang Ji" /
+    "Huang Ji" 0.88, "Ngoc Huong" / "Ngoc Phung"), so each word of the shorter core must also
+    match a word of the other at WORD_SIM ("Cha Arnon" / "Cha Anon" still passes)."""
+    import difflib
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    r = difflib.SequenceMatcher(None, a, b).ratio()
+    short, long_ = sorted((a.split(), b.split()), key=lambda t: (len(t), len("".join(t))))
+    for w in short:
+        if not any(difflib.SequenceMatcher(None, w, v).ratio() >= WORD_SIM for v in long_):
+            return min(r, WORD_SIM - 0.01)
+    return r
+
+
+def area_key(spot):
+    return spot.get("dest") or "", tuple(spot.get("up") or ())
+
+
+def areas(spots):
+    """{area_key: (lat, lon, radius)} from each destination's geolocated listings, any category."""
+    pts = defaultdict(list)
+    for s in spots:
+        if s.get("lat") is not None and s.get("lon") is not None:
+            pts[area_key(s)].append((s["lat"], s["lon"]))
+    out = {}
+    for k, ll in pts.items():
+        if len(ll) < AREA_MIN_SPOTS:
+            continue
+        lat = sorted(a for a, _ in ll)[len(ll) // 2]
+        lon = sorted(b for _, b in ll)[len(ll) // 2]
+        ds = sorted(metres(lat, lon, a, b) for a, b in ll)
+        p90 = ds[int(0.9 * (len(ds) - 1))]
+        out[k] = (lat, lon, max(AREA_MIN_R, min(AREA_MAX_R, AREA_SPREAD * p90)))
+    return out
+
+
+def area_cells(area_list):
+    """Grid cells (match()'s CELL size) covering every area's bounding box."""
+    cells = set()
+    for lat, lon, r in area_list:
+        dy = r / 111_320.0
+        dx = dy / max(0.2, math.cos(lat * math.pi / 180))
+        for gy in range(int((lat - dy) // CELL), int((lat + dy) // CELL) + 1):
+            for gx in range(int((lon - dx) // CELL), int((lon + dx) // CELL) + 1):
+                cells.add((gy, gx))
+    return cells
+
+
+def area_match(spots, pois, floor=SIM, area=None):
+    """{spot_key: poi} for food spots WITHOUT coords, by name inside their destination's area.
+
+    Names are compared on their cores (type words removed), each core needs AREA_CORE distinctive
+    characters, and every candidate at or above the floor must be ONE place: two namesakes more
+    than SAME_PLACE apart (branches, a chain, a common name) mean we cannot tell which, so no match."""
+    area = areas(spots) if area is None else area
+    index = defaultdict(list)       # name token -> [poi]; cores are cut per spot (place words differ)
+    for p in pois:
+        if not is_food_poi(p["tags"]):
+            continue
+        for tok in {t for n in p["names"] for t in core(n).split()}:
+            index[tok].append(p)
+    out = {}
+    for s in spots:
+        if s.get("cat") not in FOOD or (s.get("lat") is not None and s.get("lon") is not None):
+            continue
+        a = area.get(area_key(s))
+        if not a:
+            continue
+        drop = place_words(s)
+        names = {c for c in (core(norm(s.get("name")), drop), core(norm(s.get("local")), drop)) if distinctive(c)}
+        if not names:
+            continue
+        seen, cands = set(), []
+        for tok in {t for c in names for t in c.split()}:
+            for p in index.get(tok, ()):
+                if id(p) in seen:
+                    continue
+                seen.add(id(p))
+                if metres(a[0], a[1], p["lat"], p["lon"]) > a[2]:
+                    continue
+                cores = {c for c in (core(n, drop) for n in p["names"]) if distinctive(c)}
+                sim = max((area_similarity(x, y) for x in names for y in cores), default=0.0)
+                if sim >= floor:
+                    cands.append(p)
+        if cands and all(metres(cands[0]["lat"], cands[0]["lon"], p["lat"], p["lon"]) <= SAME_PLACE
+                         for p in cands[1:]):
+            out[spot_key(s)] = cands[0]
+    return out
+
+
+# The area match measures itself every run, per country: hide the coords of geolocated food
+# spots, area-match them, and count picks within HOLDOUT_OK of the listing's own coords. First
+# run (2026-10-15): TH 94%, VN 95%, TW 90%, MY 90%, KR 71% (Korean names repeat across unbranded
+# branches). The 300 m test undercounts: by hand, most TH "misses" were the right restaurant with
+# off listing coords. Below the bar, or with too few picks to judge, a country gets none.
+HOLDOUT_OK = 300.0
+AREA_MIN_PRECISION = 0.85
+AREA_MIN_HOLDOUT = 30
+
+
+def area_holdout(spots, pois):
+    """(picks, picks within HOLDOUT_OK of the truth) for geolocated food spots matched as if
+    they had no coords. Areas are drawn from the untouched list, as they would be for real."""
+    area = areas(spots)
+    truth, hidden = {}, []
+    for s in spots:
+        if s.get("cat") in FOOD and s.get("lat") is not None and s.get("lon") is not None:
+            truth[spot_key(s)] = (s["lat"], s["lon"])
+            hidden.append(dict(s, lat=None, lon=None))
+    got = area_match(hidden, pois, area=area)
+    ok = sum(1 for k, p in got.items() if metres(truth[k][0], truth[k][1], p["lat"], p["lon"]) <= HOLDOUT_OK)
+    return len(got), ok
+
+
+def area_trusted(picks, ok):
+    return picks >= AREA_MIN_HOLDOUT and ok >= AREA_MIN_PRECISION * picks
+
+
 def accept(new_matched, prev_matched, food_spots=0):
     """Coverage guard: a sudden collapse is an outage (a truncated extract, a renamed tag), not a
     week in which half the restaurants closed. Small pools are too noisy to judge. Zero matches
@@ -304,6 +495,10 @@ def read_pois(path, spots):
         if s.get("cat") in FOOD and s.get("lat") is not None and s.get("lon") is not None:
             gy, gx = int(s["lat"] // CELL), int(s["lon"] // CELL)
             cells.update((gy + dy, gx + dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+    # and the areas of destinations holding food spots without coords (area_match)
+    area = areas(spots)
+    wanted = {area_key(s) for s in spots if s.get("cat") in FOOD and (s.get("lat") is None or s.get("lon") is None)}
+    cells |= area_cells([area[k] for k in wanted if k in area])
 
     def keep(tags, lat, lon):
         if (int(lat // CELL), int(lon // CELL)) not in cells:
@@ -341,15 +536,22 @@ def read_pois(path, spots):
     return h.out
 
 
-def build_entries(spots, pois, lang):
+def build_entries(spots, pois, lang, use_area=True):
+    """Point matches for geolocated food spots; area matches (via "area") for the rest when the
+    country's holdout trusts them."""
     entries = {}
-    for key, p in match(spots, pois).items():
+    found = [(k, p, None) for k, p in match(spots, pois).items()]
+    if use_area:
+        found += [(k, p, "area") for k, p in area_match(spots, pois).items()]
+    for key, p, via in found:
         d, has, chain = detail(p["tags"], lang)
         e = {"d": d}
         if has:
             e["has"] = has
         if chain:
             e["chain"] = True
+        if via:
+            e["via"] = via
         entries[key] = e
     return entries
 
@@ -407,7 +609,10 @@ def run_extract(osm_path, countries, workdir, keep_file, log):
         if not spots:
             failed[cc] = "no published spots to match"
             continue
-        entries = build_entries(spots, pois, c.get("lang"))
+        picks, ok = area_holdout(spots, pois)
+        use_area = area_trusted(picks, ok)
+        log(f"{cc}: area holdout {ok}/{picks} within {HOLDOUT_OK:.0f} m -> area match {'ON' if use_area else 'off'}")
+        entries = build_entries(spots, pois, c.get("lang"), use_area)
         prev = load_json(out)
         prev_n = prev.get("matched") if prev else None
         food = sum(1 for s in spots if s.get("cat") in FOOD and s.get("lat") is not None)
@@ -417,9 +622,12 @@ def run_extract(osm_path, countries, workdir, keep_file, log):
             continue
         write_json(out, {"cc": cc, "as_of": as_of.strftime("%Y-%m-%d"), "source": url,
                          "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                         "food_spots_with_coords": food, "matched": len(entries), "spots": entries})
-        log(f"{cc}: matched {len(entries)} of {food} food spots with coords "
-            f"({sum(1 for e in entries.values() if e.get('chain'))} chains)")
+                         "food_spots_with_coords": food, "matched": len(entries),
+                         "area": {"holdout_picks": picks, "holdout_within_300m": ok, "used": use_area},
+                         "spots": entries})
+        area_n = sum(1 for e in entries.values() if e.get("via") == "area")
+        log(f"{cc}: matched {len(entries) - area_n} of {food} food spots with coords, {area_n} without "
+            f"by area ({sum(1 for e in entries.values() if e.get('chain'))} chains)")
     if not keep_file:
         for p in {pbf, src}:
             if os.path.exists(p):
