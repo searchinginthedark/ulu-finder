@@ -95,15 +95,19 @@ Field rules (the app must cope with every one being empty):
     construction). Say "only on Thai Wikipedia", never "100% of lookups": English readers may be reading
     a parent article instead (Erawan Falls is covered under Erawan National Park).
   - `sitelinks`: Wikidata sitelink count (same number as `score`), present only for spots with an item.
-  - `osm_local`: `1` or `0`, food categories only (`dine`, `cafes`, `markets`), present when the spot
+  - `osm_local`: `1`, `0.5` or `0`, food categories only (`dine`, `cafes`, `markets`), present when the spot
     matched an OpenStreetMap place: same name within 150 m, or, for a listing without coordinates,
     the only food/drink place of that name inside its destination's area (used only in countries
-    where the weekly holdout passes and `osm_area` is not false). `1` = the place is named in the local
-    language there (a `name:<lang>` tag, or a name in non-ASCII letters: Thai script, Vietnamese
-    diacritics). A chain brand is `0`. NOT a detail count: on TH, foreign places carried MORE detail
+    where the weekly holdout passes and `osm_area` is not false). `1` = its main `name` there is in
+    the local script (Thai, kana/kanji, Hangul, Chinese characters, letters only Vietnamese uses;
+    any non-ASCII letter for a language without its own script entry). `0.5` = only a `name:<lang>`
+    translation is (Ristr8to). `0` = no local-script name: "Zum grünen Baum" and a Latin-letter
+    `name:th` do not count (fixed 2026-10-15). A chain brand is `0`. Files written before
+    `format: 2` carry no main-name marker and read as the old binary `1`/`0`. NOT a detail count: on TH, foreign places carried MORE detail
     tags than local ones, while 59% of local-sounding vs 15% of foreign ones had a Thai name.
     In a pool where every matched place has the same value (Japan: all names Japanese) the score
-    ignores it. Say "Named in Thai on OpenStreetMap" / "No Thai name on OpenStreetMap".
+    ignores it. Say "Named in Thai on OpenStreetMap" / "Has a Thai name on OpenStreetMap, but its main
+    name is not Thai" / "No Thai name on OpenStreetMap".
   - `osm_chain`: `true` when the OpenStreetMap place carries a `brand` tag. Say "part of a chain".
   - `osm_local`, `osm_chain` and `ulu` (partly computed from them) are OpenStreetMap-derived
     and available under the ODbL; every other field is not, and OpenStreetMap NEVER changes `name`,

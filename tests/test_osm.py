@@ -103,13 +103,56 @@ class DetailTest(unittest.TestCase):
         self.assertEqual(osm.detail({"name": "A", "diet:halal": "yes"}, "ms")[1], ["diet"])
 
     def test_local_script_name(self):
-        self.assertEqual(osm.detail({"name": "ทองพูน"}, "th"), (2, ["local_name"], False))
+        self.assertEqual(osm.detail({"name": "ทองพูน"}, "th"), (2, ["local_name", "local_primary"], False))
 
     def test_ascii_name_is_not_local_script(self):
         self.assertEqual(osm.detail({"name": "Nasi Kandar Line Clear"}, "ms"), (0, [], False))
 
     def test_explicit_local_name_tag(self):
-        self.assertEqual(osm.detail({"name": "Thong Poon", "name:th": "ทองพูน"}, "th")[0], 2)
+        # a Thai translation under an English main name: local, but not primary
+        self.assertEqual(osm.detail({"name": "Thong Poon", "name:th": "ทองพูน"}, "th"), (2, ["local_name"], False))
+
+
+class LocalScriptTest(unittest.TestCase):
+    # Misfires on TH 2026-10-15: "any non-ASCII letter" read European accents and Chinese as Thai.
+    def test_european_accents_are_not_thai(self):
+        self.assertEqual(osm.local_name_tags({"name": "Zum grünen Baum"}, "th"), [])
+        self.assertEqual(osm.local_name_tags({"name": "Mirabelle épicerie fine"}, "th"), [])
+
+    def test_chinese_is_not_thai(self):
+        self.assertEqual(osm.local_name_tags({"name": "CaveCave 洞洞"}, "th"), [])
+
+    def test_thai_inside_a_mixed_name_counts(self):
+        # near-miss: Thai script anywhere in the main name is the local sign
+        self.assertEqual(osm.local_name_tags({"name": "ร้าน Jay Fai"}, "th"), ["local_name", "local_primary"])
+
+    def test_latin_text_in_name_th_is_not_thai(self):
+        # Wombat & Kiwi Bar: name:th = "Wombat and Kiwi Bar"
+        tags = {"name": "Wombat Bar", "name:en": "Wombat and Kiwi Bar", "name:th": "Wombat and Kiwi Bar"}
+        self.assertEqual(osm.local_name_tags(tags, "th"), [])
+
+    def test_thai_script_name_th_counts(self):
+        # near-miss: Ristr8to's name:th is a Thai-script transliteration
+        self.assertEqual(osm.local_name_tags({"name": "Ristr8to", "name:th": "ด็อปปิโอ ริสเทรสโต้"}, "th"), ["local_name"])
+
+    def test_vietnamese_needs_vietnamese_letters(self):
+        self.assertEqual(osm.local_name_tags({"name": "Phở Thìn"}, "vi"), ["local_name", "local_primary"])
+        # near-miss: an accent Vietnamese shares with French is not enough
+        self.assertEqual(osm.local_name_tags({"name": "Café de Paris"}, "vi"), [])
+
+    def test_regional_language_code_uses_its_base_script(self):
+        # TW is "zh-tw"; Chinese characters are its script, and name:zh is its tag
+        self.assertEqual(osm.local_name_tags({"name": "鼎泰豐"}, "zh-tw"), ["local_name", "local_primary"])
+        self.assertEqual(osm.local_name_tags({"name": "Din Tai Fung", "name:zh": "鼎泰豐"}, "zh-tw"), ["local_name"])
+
+    def test_latin_script_language_keeps_its_name_tag(self):
+        # MY: Malay is written in Latin letters, so an explicit name:ms still counts (not primary)
+        self.assertEqual(osm.local_name_tags({"name": "Old Town", "name:ms": "Kedai Kopi Lama"}, "ms"), ["local_name"])
+        self.assertEqual(osm.local_name_tags({"name": "Nasi Kandar Line Clear"}, "ms"), [])
+
+    def test_japanese_kana_and_kanji(self):
+        self.assertEqual(osm.local_name_tags({"name": "ザ・ロック"}, "ja"), ["local_name", "local_primary"])
+        self.assertEqual(osm.local_name_tags({"name": "Sone"}, "ja"), [])
 
 
 class GuardTest(unittest.TestCase):
@@ -173,6 +216,27 @@ class AttachTest(unittest.TestCase):
         # licence invariant: OpenStreetMap never changes a Wikivoyage field
         for s, b in zip(spots, before):
             self.assertEqual({k: v for k, v in s.items() if k != "signals"}, {k: v for k, v in b.items() if k != "signals"})
+
+    def test_graded_by_main_name(self):
+        # format 2: a Thai main name is 1, a Thai translation under a foreign main name is 0.5
+        self.write("2026-10-17")
+        path = os.path.join(self.root, "data", "osm", "TH.json")
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["format"] = osm.FORMAT
+        doc["spots"][osm.spot_key(self.food)]["has"] = ["local_name", "local_primary"]
+        doc["spots"][osm.spot_key(self.plain)]["has"] = ["web", "local_name"]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        osm.attach([self.food, self.plain], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)
+        self.assertEqual(self.food["signals"], {"osm_local": 1})
+        self.assertEqual(self.plain["signals"], {"osm_local": 0.5})
+
+    def test_old_format_file_reads_binary(self):
+        # near-miss: a file written before local_primary existed must not halve every local name
+        self.write("2026-10-17")
+        osm.attach([self.food], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)
+        self.assertEqual(self.food["signals"], {"osm_local": 1})
 
     def test_area_matches_can_be_switched_off(self):
         # JP: the holdout trusted its area matches, but osm_check failed with them (top-30 foreign
@@ -334,7 +398,7 @@ class AreaMatchTest(unittest.TestCase):
         spots = town() + [s]
         before = copy.deepcopy(spots)
         entries = osm.build_entries(spots, [food_poi(["สมบูรณ์โภชนา", "Somboon Seafood"], 1500)], "th")
-        self.assertEqual(entries[osm.spot_key(s)], {"d": 2, "has": ["local_name"], "via": "area"})
+        self.assertEqual(entries[osm.spot_key(s)], {"d": 2, "has": ["local_name", "local_primary"], "via": "area"})
         # licence: an area match never hands a spot coordinates (or anything else)
         self.assertEqual(spots, before)
 

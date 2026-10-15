@@ -588,6 +588,9 @@
         lines.push('Part of a chain brand on OpenStreetMap' + when);
       } else if (sig.osm_local === 1) {
         lines.push('Named in ' + named + ' on OpenStreetMap' + when);
+      } else if (sig.osm_local > 0) {
+        // 0.5: a translation under a foreign main name (docs/contract.md)
+        lines.push('Has a ' + named + ' name on OpenStreetMap, but its main name is not ' + named + when);
       } else {
         lines.push('No ' + named + ' name on OpenStreetMap' + when);
       }

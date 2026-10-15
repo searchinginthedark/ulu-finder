@@ -55,6 +55,7 @@ GROUPS = {
     "survey": ("check_date", "survey:date", "check_date:opening_hours"),
 }
 LOCAL_NAME_POINTS = 2
+FORMAT = 2              # data/osm/<CC>.json: 2 = "has" carries "local_primary", names checked by script
 CHAIN = ("brand", "brand:wikidata")   # NOT operator: temples and parks carry one too
 
 
@@ -112,17 +113,46 @@ def poi_names(tags):
             if k == "name" or k.startswith("name:") or k in ("alt_name", "old_name", "official_name", "short_name")} - {""}
 
 
+# The local language's own script. "Any non-ASCII letter" read "Zum grünen Baum", "Dé Van" and
+# "CaveCave 洞洞" as Thai (TH, 2026-10-15). Vietnamese is Latin, so it is the letters only
+# Vietnamese uses ("Café" is not one); a language not listed falls back to any non-ASCII letter.
+_CJK = "㐀-䶿一-鿿豈-﫿"
+SCRIPT = {
+    "th": "฀-๿", "lo": "຀-໿", "km": "ក-៿", "my": "က-႟",
+    "ja": "぀-ヿｦ-ﾟ" + _CJK, "zh": _CJK,
+    "ko": "가-힯ᄀ-ᇿ㄰-㆏",
+    "vi": "ăâđêôơưĂÂĐÊÔƠƯạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼẾỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴỶỸ",
+}
+
+
+def in_local_script(text, lang):
+    chars = SCRIPT.get((lang or "").split("-")[0])
+    if chars:
+        return bool(re.search(f"[{chars}]", text or ""))
+    return any(ord(c) > 127 and c.isalpha() for c in text or "")
+
+
+def local_name_tags(tags, lang):
+    """Which names are in the local language: "local_primary" when `name` itself (what the sign
+    says, as local mappers record it) is in the local script, "local_name" when any name is.
+    An explicit name:<lang> counts only in that script (Wombat & Kiwi Bar carried a Latin
+    name:th), except for a Latin-script language with no SCRIPT entry (name:ms)."""
+    base = (lang or "").split("-")[0]
+    primary = in_local_script(tags.get("name", ""), lang)
+    named = (tags.get(f"name:{lang}") or tags.get(f"name:{base}")) if lang else ""
+    other = bool(named) and (in_local_script(named, lang) or base not in SCRIPT)
+    if primary:
+        return ["local_name", "local_primary"]
+    return ["local_name"] if other else []
+
+
 def has_local_name(tags, lang):
-    """A name in the local language: an explicit name:<lang>, or a name written in non-ASCII letters
-    (Thai script, Vietnamese diacritics). Constant across a pool where every name is local (Japan),
-    so it moves no percentile there."""
-    if lang and tags.get(f"name:{lang}"):
-        return True
-    return any(ord(c) > 127 and c.isalpha() for c in tags.get("name", ""))
+    """Constant across a pool where every name is local (Japan), so it moves no percentile there."""
+    return bool(local_name_tags(tags, lang))
 
 
 def detail(tags, lang):
-    """(d, has, chain) for data/osm/<CC>.json. attach() scores only "local_name" in has; `d` and the
+    """(d, has, chain) for data/osm/<CC>.json. attach() scores only "local_name"/"local_primary" in has; `d` and the
     other groups are kept for diagnosis (they ran the wrong way as a locality signal on TH).
     A chain is mapped from brand data, not by locals."""
     if any(tags.get(k) for k in CHAIN):
@@ -134,8 +164,9 @@ def detail(tags, lang):
                 has.append(group)
                 break
     points = len(has)
-    if has_local_name(tags, lang):
-        has.append("local_name")
+    names = local_name_tags(tags, lang)
+    if names:
+        has += names
         points += LOCAL_NAME_POINTS
     return points, has, False
 
@@ -415,8 +446,18 @@ def attach(spots, cc, root=ROOT, today=None, log=print, use_area=True):
         # (2026-10-14): 59% of local-sounding places carry a Thai name vs 15% of expat/foreign
         # ones, while the detail-tag count ran the WRONG way (1.89 foreign vs 1.16 local:
         # expats map their own haunts thoroughly). The file keeps `d`/`has` for diagnosis only.
+        # Graded since 2026-10-15 to break ties: 1 = the main name is in the local script, 0.5 =
+        # only a name:<lang> translation is (Ristr8to, The Hungry Wolf). On TH the main name was
+        # local for 91% of local-sounding vs 54% of foreign-sounding spots. A file written before
+        # "local_primary" existed (no FORMAT) keeps the old binary reading.
         chain = bool(e.get("chain"))
-        sig["osm_local"] = 0 if chain else int("local_name" in (e.get("has") or ()))
+        has = e.get("has") or ()
+        if chain or "local_name" not in has:
+            sig["osm_local"] = 0
+        elif "local_primary" in has or doc.get("format", 1) < FORMAT:
+            sig["osm_local"] = 1
+        else:
+            sig["osm_local"] = 0.5
         if chain:
             sig["osm_chain"] = True
         n += 1
@@ -622,7 +663,7 @@ def run_extract(osm_path, countries, workdir, keep_file, log):
             failed[cc] = f"matched {len(entries)} vs {prev_n} last time: kept last week's file"
             log(f"{cc}: COVERAGE GUARD {failed[cc]}")
             continue
-        write_json(out, {"cc": cc, "as_of": as_of.strftime("%Y-%m-%d"), "source": url,
+        write_json(out, {"cc": cc, "format": FORMAT, "as_of": as_of.strftime("%Y-%m-%d"), "source": url,
                          "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                          "food_spots_with_coords": food, "matched": len(entries),
                          "area": {"holdout_picks": picks, "holdout_within_300m": ok, "used": use_area},
