@@ -1,6 +1,10 @@
 'use strict';
 (function () {
   var PAGE = 24;
+  // The feed opens on a shortlist: the decision is "which few tonight", not "browse 400".
+  var TOP = 10;
+  // Below this share of scored spots, "Most local" is mostly Famous order: say so.
+  var THIN_SHARE = 0.1;
   var K_COUNTRY = 'ulu.country';
   var K_SAVED = 'ulu.saved.v1';
   var K_OPENS = 'ulu.opens.v1';
@@ -129,6 +133,8 @@
     saved: read(K_SAVED, {}),
     list: [],
     shown: 0,
+    capped: true,        // feed shows TOP until "Show all"; reset by every refresh
+    pool: { scored: 0, total: 0 },
     gen: 0
   };
   if (!S.saved || typeof S.saved !== 'object' || Array.isArray(S.saved)) S.saved = {};
@@ -164,8 +170,8 @@
   /* ---------- filtering ---------- */
   function norm(s) { return (s || '').toLowerCase(); }
 
-  function baseFiltered(spots) {
-    var q = norm(S.q.trim());
+  function baseFiltered(spots, ignoreQuery) {
+    var q = ignoreQuery ? '' : norm(S.q.trim());
     return spots.filter(function (s) {
       if (S.r1 && s.r1 !== S.r1) return false;
       if (S.r2 && s.r2 !== S.r2) return false;
@@ -190,17 +196,19 @@
       return items;
     }
     if (!S.data) return [];
+    S.pool = poolStats();
     var base = baseFiltered(S.data.spots || []);
     if (S.cat) base = base.filter(function (s) { return s.cat === S.cat; });
     var out = base.map(function (s) { return { spot: s, cc: S.cc, rn: regionName(s) }; });
-    if (S.sort === 'local') {
+    var sort = effectiveSort();
+    if (sort === 'local') {
       // Unscored spots keep the file's own (Famous) order after the scored ones; sort is stable.
       out.sort(function (a, b) {
         var x = typeof a.spot.ulu === 'number' ? a.spot.ulu : -1;
         var y = typeof b.spot.ulu === 'number' ? b.spot.ulu : -1;
         return y - x;
       });
-    } else if (S.sort === 'near' && S.pos) {
+    } else if (sort === 'near' && S.pos) {
       out.forEach(function (it) {
         var s = it.spot;
         it.km = (typeof s.lat === 'number' && typeof s.lon === 'number')
@@ -214,6 +222,44 @@
       });
     }
     return out;
+  }
+
+  // How many spots in the current place + category carry an Ulu score. The search box is ignored
+  // so typing never makes "Most local" appear and vanish.
+  function poolStats() {
+    var pool = baseFiltered(S.data.spots || [], true);
+    if (S.cat) pool = pool.filter(function (s) { return s.cat === S.cat; });
+    var scored = 0;
+    pool.forEach(function (s) { if (typeof s.ulu === 'number') scored++; });
+    return { scored: scored, total: pool.length };
+  }
+
+  // S.sort is the user's choice and is kept; a pool with no scores falls back to Famous without
+  // overwriting it, so the next scored pool opens on Most local again.
+  function effectiveSort() {
+    if (S.sort === 'local' && S.view === 'feed' && S.pool.scored === 0) return 'top';
+    return S.sort;
+  }
+
+  function placeLabel() {
+    var d = S.data;
+    if (S.dest) return S.dest;
+    var r = regionById[S.r2] || regionById[S.r1];
+    return r ? r.name : d.name;
+  }
+
+  function rankNote() {
+    if (!S.data || !S.pool.total) return '';
+    var what = S.cat ? catLabel(S.cat) : 'spots';
+    if (S.pool.scored === 0) {
+      return 'No local data yet for ' + what + ' in ' + placeLabel() +
+        ', so these are sorted by Famous: how widely each place is written about.';
+    }
+    if (effectiveSort() === 'local' && S.pool.scored / S.pool.total < THIN_SHARE) {
+      return 'Only ' + S.pool.scored + ' of ' + S.pool.total + ' ' + what +
+        ' here have local data. The rest follow Famous order.';
+    }
+    return '';
   }
 
   function regionName(s) {
@@ -349,11 +395,18 @@
     $('savedBtn').setAttribute('aria-pressed', saved ? 'true' : 'false');
     $('savedCount').textContent = String(savedCount());
     if (!saved) { renderWhere(); renderCats(); }
-    $('sortLocal').setAttribute('aria-pressed', S.sort === 'local' ? 'true' : 'false');
-    $('sortTop').setAttribute('aria-pressed', S.sort === 'top' ? 'true' : 'false');
-    $('sortNear').setAttribute('aria-pressed', S.sort === 'near' ? 'true' : 'false');
     S.list = computeList();
+    var sort = effectiveSort();
+    // "Most local" is hidden where it would only repeat Famous order under a misleading name
+    $('sortLocal').hidden = !saved && !!S.data && S.pool.scored === 0;
+    $('sortLocal').setAttribute('aria-pressed', sort === 'local' ? 'true' : 'false');
+    $('sortTop').setAttribute('aria-pressed', sort === 'top' ? 'true' : 'false');
+    $('sortNear').setAttribute('aria-pressed', sort === 'near' ? 'true' : 'false');
+    var rn = saved ? '' : rankNote();
+    $('rank').textContent = rn;
+    $('rank').hidden = !rn;
     S.shown = 0;
+    S.capped = true;
     S.gen++;
     $('feed').textContent = '';
     var st = $('status');
@@ -368,19 +421,33 @@
     window.scrollTo(0, 0);
   }
 
+  // The shortlist cap applies to the feed only, and not while searching (a typed name may rank 11th).
+  function limit() {
+    if (S.capped && S.view === 'feed' && !S.q.trim()) return Math.min(S.list.length, TOP);
+    return S.list.length;
+  }
+
   function renderMore() {
     var feed = $('feed');
-    var end = Math.min(S.list.length, S.shown + PAGE);
+    var end = Math.min(limit(), S.shown + PAGE);
     var frag = document.createDocumentFragment();
     for (var i = S.shown; i < end; i++) frag.appendChild(buildCard(S.list[i]));
     feed.appendChild(frag);
     S.shown = end;
+    var btn = $('moreBtn');
+    btn.hidden = S.shown >= S.list.length || limit() === S.list.length;
+    if (!btn.hidden) btn.textContent = 'Show all ' + S.list.length;
     watchSentinel();
+  }
+
+  function showAll() {
+    S.capped = false;
+    renderMore();
   }
 
   function watchSentinel() {
     var sent = $('sentinel');
-    if (S.shown >= S.list.length) {
+    if (S.shown >= limit()) {
       if (io) io.disconnect();
       return;
     }
@@ -391,7 +458,7 @@
     if (!io) {
       io = new IntersectionObserver(function (entries) {
         if (entries.some(function (e) { return e.isIntersecting; })) {
-          if (S.shown < S.list.length) renderMore();
+          if (S.shown < limit()) renderMore();
         }
       }, { rootMargin: '600px 0px' });
     }
@@ -401,7 +468,7 @@
   window.addEventListener('scroll', debounce(function () {
     if ('IntersectionObserver' in window) return;
     var doc = document.documentElement;
-    if (S.shown < S.list.length && window.innerHeight + window.scrollY > doc.scrollHeight - 800) renderMore();
+    if (S.shown < limit() && window.innerHeight + window.scrollY > doc.scrollHeight - 800) renderMore();
   }, 100), { passive: true });
 
   /* ---------- card ---------- */
@@ -741,7 +808,7 @@
       S.sort = 'local';
       showNote(err && err.code === 1
         ? 'Location permission was denied, so Nearby is off. Allow location for this site to use it.'
-        : 'Could not get your location. Showing Most local instead.');
+        : 'Could not get your location, so Nearby is off.');
       refresh();
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
   }
@@ -810,6 +877,7 @@
     $('sortLocal').addEventListener('click', setSortLocal);
     $('sortTop').addEventListener('click', setSortTop);
     $('sortNear').addEventListener('click', setSortNear);
+    $('moreBtn').addEventListener('click', showAll);
     $('savedBtn').addEventListener('click', function () {
       S.view = S.view === 'saved' ? 'feed' : 'saved';
       refresh();

@@ -1,4 +1,4 @@
-const CACHE = 'ulu-v9';
+const CACHE = 'ulu-v10';
 const ASSETS = [
   './',
   'app.js',
@@ -25,21 +25,29 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-async function networkFirst(req, fallbackKey) {
+// Network-first, but on flaky roaming data a fetch can hang for a minute before failing. After
+// TIMEOUT_MS a cached copy is served instead; with nothing cached the network is still awaited.
+// The slow fetch keeps running and refreshes the cache for next time.
+const TIMEOUT_MS = 3000;
+
+async function networkFirst(req, fallbackKey, event) {
   const cache = await caches.open(CACHE);
-  try {
-    const res = await fetch(req);
-    if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
-    return res;
-  } catch (err) {
-    const hit = await cache.match(req);
-    if (hit) return hit;
-    if (fallbackKey) {
-      const fb = await cache.match(fallbackKey);
-      if (fb) return fb;
-    }
-    throw err;
-  }
+  const cached = async () => (await cache.match(req)) || (fallbackKey ? cache.match(fallbackKey) : undefined);
+  const net = fetch(req);
+  // Registered before the response is handed out, so the clone is taken while the body is unread.
+  const update = net.then((res) => (res && res.ok ? cache.put(req, res.clone()) : null)).catch(() => {});
+  if (event) event.waitUntil(update);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, v) => { if (!settled) { settled = true; clearTimeout(timer); fn(v); } };
+    const timer = setTimeout(() => {
+      cached().then((hit) => { if (hit) finish(resolve, hit); }, () => {});
+    }, TIMEOUT_MS);
+    net.then((res) => finish(resolve, res), (err) => {
+      cached().then((hit) => (hit ? finish(resolve, hit) : finish(reject, err)), () => finish(reject, err));
+    });
+  });
 }
 
 self.addEventListener('fetch', (e) => {
@@ -52,11 +60,11 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
 
   if (req.mode === 'navigate') {
-    e.respondWith(networkFirst(req, './'));
+    e.respondWith(networkFirst(req, './', e));
     return;
   }
   if (url.pathname.includes('/data/') && url.pathname.endsWith('.json')) {
-    e.respondWith(networkFirst(req, null));
+    e.respondWith(networkFirst(req, null, e));
     return;
   }
   e.respondWith(
