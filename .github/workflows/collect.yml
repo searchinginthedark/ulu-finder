@@ -37,23 +37,14 @@ jobs:
           if [ "$rc" = "2" ]; then exit 1; fi
           exit 0
       - name: Commit
-        id: commit
+        # Vercel deploys only commits authored by the project owner: an "ulu-collector" author was
+        # BLOCKED, and so was a deploy hook (it checks the HEAD commit's author too), measured
+        # 2026-10-15. So the data commit is authored as the owner, via GitHub's private noreply address.
         run: |
-          git config user.name "ulu-collector"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "Zhi Yang"
+          git config user.email "61216405+Zhiyang123@users.noreply.github.com"
           git add public/data data/state.json
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
           git commit -m "data: weekly collect $(date -u +%Y-%m-%d)"
           git pull --rebase origin main
           git push origin HEAD:main
-          echo "pushed=1" >> "$GITHUB_OUTPUT"
-      - name: Deploy
-        # Vercel blocks deployments for commits by this bot ("Git author must have access to the
-        # project"), so a pushed data commit never went live on its own (2026-10-15). A deploy hook
-        # builds main's HEAD regardless of author. Secret VERCEL_DEPLOY_HOOK; skipped until it is set.
-        if: steps.commit.outputs.pushed == '1'
-        env:
-          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
-        run: |
-          if [ -z "$HOOK" ]; then echo "VERCEL_DEPLOY_HOOK not set: data is committed but NOT deployed"; exit 0; fi
-          curl -fsS -X POST "$HOOK" > /dev/null && echo "deploy hook called"

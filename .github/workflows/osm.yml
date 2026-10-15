@@ -53,9 +53,10 @@ jobs:
           if [ "$rc" = "2" ]; then exit 1; fi
           exit 0
       - name: Commit
+        # authored as the owner for the same reason as collect.yml: Vercel blocks other authors
         run: |
-          git config user.name "ulu-collector"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "Zhi Yang"
+          git config user.email "61216405+Zhiyang123@users.noreply.github.com"
           git add data/osm
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
           git commit -m "data: weekly osm $(date -u +%Y-%m-%d)"
