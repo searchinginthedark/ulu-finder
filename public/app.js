@@ -53,7 +53,25 @@
     for (var i = 0; i < days; i++) if (opens[dateKey(new Date(Date.now() - i * 86400000))]) n++;
     return n;
   }
-  window.ulu = { openedDays: openedDays };
+  /* ---------- local-only use counters (never sent anywhere): which cuts to make after ~30 days ---------- */
+  var K_STATS = 'ulu.stats.v1';
+  function bump(group, name) {
+    var st = read(K_STATS, null);
+    if (!st || typeof st !== 'object') st = {};
+    if (!st.since) st.since = dateKey(new Date());
+    var g = st[group] && typeof st[group] === 'object' ? st[group] : (st[group] = {});
+    g[name] = (g[name] || 0) + 1;
+    write(K_STATS, st);
+  }
+  // exposed for console inspection: ulu.stats()
+  function stats() { return read(K_STATS, {}); }
+  // Platform links (quick link, detail links, Maps row): one delegated listener counts them by label.
+  document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a.qlink, a.plat, a.mlink') : null;
+    if (!a) return;
+    bump('links', a.classList.contains('mlink') ? 'Google Maps (saved row)' : (a.firstChild ? a.firstChild.textContent : 'link'));
+  }, true);
+  window.ulu = { openedDays: openedDays, stats: stats };
   document.addEventListener('visibilitychange', function () { if (!document.hidden) countOpen(); });
   countOpen();
 
@@ -812,6 +830,7 @@
 
   function openShareSheet() {
     if (!savedCount()) return;
+    bump('trip', 'share_opened');
     openSheet('Share trip list', function (body) {
       var url = tripUrl();
       body.appendChild(el('p', '', savedCount() + ' spots. Anyone who opens this link can add them to their own list. ' +
@@ -890,6 +909,7 @@
           add.addEventListener('click', function () {
             fresh.forEach(function (it) { S.saved[savedKey(it.cc, it.spot.id)] = it; });
             write(K_SAVED, S.saved);
+            bump('trip', 'imported');
             closeSheet();
             S.view = 'saved';
             refresh();
@@ -1001,9 +1021,10 @@
     n.textContent = msg;
     n.hidden = false;
   }
-  function setSortLocal() { S.sort = 'local'; showNote(''); refresh(); }
-  function setSortTop() { S.sort = 'top'; showNote(''); refresh(); }
+  function setSortLocal() { bump('sort', 'local'); S.sort = 'local'; showNote(''); refresh(); }
+  function setSortTop() { bump('sort', 'top'); S.sort = 'top'; showNote(''); refresh(); }
   function setSortNear() {
+    bump('sort', 'near');
     showNote('');
     if (S.pos) { S.sort = 'near'; refresh(); return; }
     if (!navigator.geolocation) { showNote('Location is not available on this device.'); return; }
