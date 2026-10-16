@@ -110,7 +110,7 @@ EXCLUDED = [
      "Chongqing", None),
     ("markets", "Tsukiji Outer Market", "Although the wholesale operations closed in 2018, the outer market thrives.",
      "Tokyo/Chuo", None),
-    ("dine", "Es Teler Durian Mbak Bella", "", "Ngawi", None),
+    ("dine", "Es Teler Durian Mbak Bella", "Durian iced dessert.", "Ngawi", None),
     ("nature", "Trail 11", "This trail was closed due to landslides in 2017, but it is open and walkable.",
      "Cameron Highlands", None),
     ("culture", "Cultural & Sports Complex", "There is a museum across the river, but it is closed.", "Zhongwei", None),
@@ -119,20 +119,55 @@ EXCLUDED = [
     ("cafes", "Starbucks Reserve", "", "Tokyo/Shibuya", "chain"),
     ("dine", "Hard Rock Cafe", "", "Kota Kinabalu", "chain"),
     ("dine", "Jollibee", "Filipino fried chicken.", "Metro Manila", None),             # near-miss: home-grown chain stays
-    ("cafes", "Old Town White Coffee", "", "Ipoh", None),                              # near-miss: home-grown chain stays
+    ("cafes", "Old Town White Coffee", "White coffee and toast.", "Ipoh", None),                              # near-miss: home-grown chain stays
     ("dine", "Subway Noodle House", "", "Taipei", "chain"),                            # accepted false positive, rare
     ("dine", "Nasi Lemak Stall", "", "Kuala Lumpur International Airport", "airport"),
     ("sights", "Jewel Changi", "Indoor waterfall.", "Changi Airport", None),           # near-miss: not food
     ("dine", "Jumbo Seafood Jewel", "Chilli crab.", "Changi Airport", None),           # Changi food stays (user ruling)
     ("dine", "Nasi Lemak Kukus", "", "Ninoy Aquino International Airport", "airport"),
-    ("dine", "Airport Road Hawker", "", "Penang", None),                               # near-miss: "airport" in the name only
+    ("dine", "Airport Road Hawker", "Char kway teow.", "Penang", None),                               # near-miss: "airport" in the name only
     ("shopping", "Starbucks merchandise", "", "Seoul", None),                          # near-miss: chains only drop in food
     ("cafes", "Gloria Jean's Coffee", "", "Kuala Lumpur", "chain"),
     ("cafes", "Various cafes in Bandar Sunway", "Old Town Kopitiam, Swenz, Sri Wan.", "Subang Jaya", "generic"),
     ("sights", "Various Temples Street", "", "Ipoh", "generic"),                       # accepted: no real place starts so
-    ("dine", "Manyfold Bistro", "", "Ipoh", None),                                     # near-miss: word boundary
-    ("cafes", "Many Coffee", "", "Sam Neua", None),                                    # misfire 2026-10-15: a real cafe
+    ("dine", "Manyfold Bistro", "Western food.", "Ipoh", None),                                     # near-miss: word boundary
+    ("cafes", "Many Coffee", "Lao coffee.", "Sam Neua", None),                                    # misfire 2026-10-15: a real cafe
     ("culture", "Other Great Wall ruins", "", "Qinhuangdao", "generic"),
+    # no description (user ruling 2026-10-16): food only, and a stronger reason wins
+    ("dine", "Kainan sa Plaza", "", "Vigan", "nodesc"),
+    ("cafes", "Kopi Corner", "   ", "Ipoh", "nodesc"),
+    ("markets", "Pasar Pagi", "", "Ipoh", "nodesc"),
+    ("sights", "Clock Tower", "", "Ipoh", None),                                      # near-miss: not food
+    ("dine", "Old Diner (closed)", "", "Hanoi", "closed"),                             # closed outranks nodesc
+]
+
+# (cat, name, description, destination, country, expected). Regional chains stay only at home
+# (user ruling 2026-10-16).
+REGIONAL = [
+    ("dine", "Jollibee", "Fried chicken.", "Metro Manila", "PH", None),
+    ("dine", "Jollibee", "Fried chicken.", "Bandar Seri Begawan", "BN", "chain"),
+    ("dine", "Mang Inasal Baler Branch", "Grilled chicken.", "Baler", "PH", None),
+    ("dine", "Din Tai Fung", "Xiaolongbao.", "Taipei", "TW", None),
+    ("dine", "Din Tai Fung", "Xiaolongbao.", "Singapore/Orchard", "SG", "chain"),
+    ("cafes", "Gong Cha (贡茶 巴中店)", "Bubble tea.", "Bazhong", "CN", "chain"),
+    ("cafes", "Café Amazon-San Fernando Pampanga", "Thai coffee chain.", "San Fernando", "PH", "chain"),
+    ("cafes", "Cafe Amazon", "Coffee.", "Chiang Mai", "TH", None),
+    ("cafes", "Highlands Coffee (North Location)", "Coffee.", "Kunming", "CN", "chain"),
+    ("dine", "Pho 24", "Noodle soup.", "Jakarta", "ID", "chain"),
+    ("dine", "Lotteria", "Burgers.", "Seoul", "KR", None),                            # two homes
+    ("dine", "Lotteria", "Burgers.", "Tokyo/Shibuya", "JP", None),
+    ("dine", "Lotteria", "Burgers.", "Hanoi", "VN", "chain"),
+    ("dine", "Sukiya", "Gyudon.", "Tokyo/Shinjuku", "JP", None),
+    ("dine", "Sukiyabashi Jiro", "Sushi.", "Tokyo/Chuo", "JP", None),                  # near-miss: not Sukiya
+    ("dine", "Sukiyaki Ichiban", "Sukiyaki.", "Taipei", "TW", None),                   # near-miss: not Sukiya
+    ("shopping", "Mitsukoshi and Matsuya Ginza's", "Department stores.", "Tokyo/Chuo", "JP", None),
+    ("dine", "Coco Ichibanya", "Curry.", "Shanghai", "CN", "chain"),
+    ("dine", "COCO", "Bar food.", "Dali", "CN", None),                                  # near-miss: bare word
+    ("cafes", "Bo's Coffee Dagupan", "Coffee.", "Dagupan", "PH", None),
+    ("cafes", "Bo's Cafe", "Coffee and cake.", "Pai", "TH", None),                     # misfire 2026-10-16: not Bo's Coffee
+    ("dine", "Maxim's Palace", "Dim sum.", "Hong Kong/Central", "HK", None),            # near-miss: not Max's
+    ("shopping", "Jollibee merchandise", "", "Brunei", "BN", None),                     # chains drop in food only
+    ("dine", "Jollibee", "Fried chicken.", "Bandar Seri Begawan", None, None),          # no country: rule off
 ]
 
 
@@ -147,6 +182,11 @@ class ClassifyTest(unittest.TestCase):
         for cat, name, desc, dest, want in EXCLUDED:
             with self.subTest(name=name):
                 self.assertEqual(excluded(cat, name, desc, dest), want)
+
+    def test_regional_chains(self):
+        for cat, name, desc, dest, cc, want in REGIONAL:
+            with self.subTest(name=name, cc=cc):
+                self.assertEqual(excluded(cat, name, desc, dest, cc), want)
 
 
 class EditYearTest(unittest.TestCase):

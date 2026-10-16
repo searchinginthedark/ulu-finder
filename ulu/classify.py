@@ -147,12 +147,40 @@ INTL_CHAIN = _rx([r"mcdonald'?s", r"kfc", r"kentucky fried chicken", r"burger ki
                   r"chili'?s", r"outback steakhouse", r"tony roma'?s", r"texas roadhouse", r"sizzler", r"johnny rockets",
                   r"bubba gump", r"hard rock(?: cafe| café)?", r"planet hollywood", r"gloria jean'?s(?: coffees?)?",
                   r"dome caf[eé]"])
+# Regional chains are home-grown only at home (user ruling 2026-10-16): Jollibee is what Filipinos
+# eat in Manila and a chain in Brunei. Names measured in the built data 2026-10-16. Sukiya and
+# Matsuya need the name to START with them: "Sukiyabashi Jiro", "Mitsukoshi and Matsuya Ginza's".
+REGIONAL_CHAIN = [(re.compile(p, re.I), home) for p, home in [
+    (r"(?<!\w)(?:jollibee|mang inasal|chowking|bo'?s coffee|greenwich pizza|max'?s restaurant|"
+     r"red ribbon(?: bakeshop)?)(?!\w)", "PH"),
+    (r"(?<!\w)(?:din tai fung|chatime|gong ?cha|coco fresh tea|tiger sugar)(?!\w)|鼎泰豐|鼎泰丰|貢茶|贡茶", "TW"),
+    (r"(?<!\w)(?:caf[eé] amazon|black canyon(?: coffee)?|mk restaurants?|s ?& ?p restaurant)(?!\w)", "TH"),
+    (r"(?<!\w)(?:highlands coffee|ph[oở] 24|trung nguy[eê]n|ph[uú]c long)(?!\w)", "VN"),
+    (r"(?<!\w)(?:old ?town white coffee|secret recipe|marrybrown|tealive)(?!\w)", "MY"),
+    (r"(?<!\w)(?:ya kun(?: kaya toast)?|toast box|breadtalk|paradise dynasty)(?!\w)", "SG"),
+    (r"(?<!\w)(?:luckin(?: coffee)?|mixue|heytea)(?!\w)|瑞幸|蜜雪冰城|喜茶", "CN"),
+    (r"(?<!\w)(?:kopi kenangan|j\.co(?: donuts)?)(?!\w)", "ID"),
+    (r"(?<!\w)(?:yoshinoya|torikizoku|ichiran|coco ichibanya)(?!\w)|^(?:sukiya|matsuya)(?!\w)|吉野家|鳥貴族|一蘭", "JP"),
+    (r"(?<!\w)tim ho wan(?!\w)|添好運", "HK"),
+    (r"(?<!\w)(?:paris baguette|tous les jours)(?!\w)", "KR"),
+    (r"(?<!\w)lotteria(?!\w)", "JP KR"),                      # founded in Tokyo, biggest in Korea
+]]
+
+
+def regional_chain_home(name):
+    """Home country codes (space-separated) of a regional chain, or None if the name is none."""
+    for rx, home in REGIONAL_CHAIN:
+        if rx.search(name):
+            return home
+    return None
+
+
 AIRPORT = re.compile(r"\bairport\b|機場|机场|空港|공항|\bsân bay\b|\bbandara\b|\blapangan terbang\b", re.I)
 # Airports locals go to for food (user ruling 2026-10-15): Changi and Jewel are a Singapore outing.
 LOCAL_AIRPORT = re.compile(r"\bchangi\b", re.I)
 
 
-def excluded(cat, name, desc, dest):
+def excluded(cat, name, desc, dest, cc=None):
     """Why a classified listing is left out of the app, or None. Deterministic, like classify()."""
     desc = desc or ""
     if GENERIC.search(name):
@@ -161,8 +189,15 @@ def excluded(cat, name, desc, dest):
         return "closed"
     if cat in FOOD and INTL_CHAIN.search(name):
         return "chain"
+    home = regional_chain_home(name) if cat in FOOD and cc else None
+    if home and cc not in home.split():
+        return "chain"
     if cat in FOOD and AIRPORT.search(dest or "") and not LOCAL_AIRPORT.search(dest or ""):
         return "airport"
+    # A food card with no description is a bare name (user ruling 2026-10-16). Checked last so
+    # a closed or chain listing still reports that reason.
+    if cat in FOOD and not desc.strip():
+        return "nodesc"
     return None
 
 

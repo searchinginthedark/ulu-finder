@@ -85,6 +85,33 @@ class BuildHelpersTest(unittest.TestCase):
         c = {"name": "Mount Apo", "wd": "", "lat": None, "lon": None, "r1": "1", "dest": "Davao"}
         self.assertEqual([s["name"] for s in dedupe([a, b, c])], ["Mount Apo", "Mount Apo"])
 
+    def test_merge_same_name(self):
+        from ulu.build import merge_same_name
+
+        def spot(name, dest="Vigan", desc="", lat=None, lon=None, cat="dine", **kw):
+            return dict({"name": name, "dest": dest, "cat": cat, "desc": desc, "lat": lat, "lon": lon, "img": None, "wd": "",
+                         "alt": "", "hours": "", "price": "", "addr": ""}, **kw)
+        # same place listed twice: the described one wins, keeps the first slot, borrows coords and hours
+        a = spot("Cafe Leona", hours="9-21", lat=17.5747, lon=120.3869)
+        b = spot("Other", desc="x")
+        c = spot("cafe leona", desc="Ilocano dishes by the plaza.")
+        out = merge_same_name([a, b, c])
+        self.assertEqual([s["name"] for s in out], ["cafe leona", "Other"])
+        self.assertEqual((out[0]["lat"], out[0]["hours"]), (17.5747, "9-21"))
+        # branches 1.1 km apart both stay; a coord-less listing folds into one of them
+        d = spot("Jollibee", desc="Plaza branch.", lat=17.5747, lon=120.3869)
+        e = spot("Jollibee", desc="Highway branch.", lat=17.5847, lon=120.3869)
+        f = spot("Jollibee")
+        self.assertEqual(len(merge_same_name([d, e, f])), 2)
+        # near-miss: 250 m apart is one place
+        g = spot("Jollibee", desc="a", lat=17.5747, lon=120.3869)
+        h = spot("Jollibee", desc="b", lat=17.5769, lon=120.3869)
+        self.assertEqual(len(merge_same_name([g, h])), 1)
+        # near-miss: the hotel as a sight and its restaurant are two cards
+        self.assertEqual(len(merge_same_name([spot("Strand Hotel", cat="sights"), spot("Strand Hotel")])), 2)
+        # near-miss: same name, other destination
+        self.assertEqual(len(merge_same_name([spot("Jollibee"), spot("Jollibee", dest="Laoag")])), 2)
+
     def test_not_place_status(self):
         from ulu.build import not_place
         for st in ("usabletopic", "outlineitinerary", "usablediveguide", "usableevent"):

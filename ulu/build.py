@@ -162,7 +162,7 @@ def edit_year(v):
     return int(m.group(1)) if m else None
 
 
-def page_spots(pid, page, path, titles, dropped=None):
+def page_spots(pid, page, path, titles, dropped=None, cc=None):
     title = page["title"]
     dest = display_name(title)
     up = [display_name(titles[a]) for a in reversed(path[:-1])]
@@ -184,7 +184,7 @@ def page_spots(pid, page, path, titles, dropped=None):
         cat = classify(l, name, desc)
         if not cat:
             continue
-        why = excluded(cat, name, desc, dest)
+        why = excluded(cat, name, desc, dest, cc)
         if why:
             if dropped is not None:
                 dropped[why] += 1
@@ -222,6 +222,52 @@ def dedupe(spots):
         seen.add(key)
         out.append(s)
     return out
+
+
+SAME_PLACE_M = 300
+_FILL = ("lat", "lon", "img", "wd", "alt", "hours", "price", "addr")
+
+
+def merge_same_name(spots):
+    """One card per name, category and destination (user ruling 2026-10-16): Wikivoyage often lists
+    a place twice, on one page or in two sections that classify alike. Another category is another
+    card on purpose: "Strand Hotel" the sight and "Strand Hotel" the Eat listing, Costco the shop and
+    its food court (measured 2026-10-16). Two listings with coordinates more than
+    SAME_PLACE_M apart are branches and both stay. The most detailed listing is kept, at the first
+    one's position, and borrows any field it lacks from the listings folded into it."""
+    def rich(s):
+        return (bool(s["desc"]), s["lat"] is not None, bool(s.get("img")), bool(s.get("wd")), len(s["desc"]))
+
+    def near(a, b):
+        if a["lat"] is None or b["lat"] is None:
+            return True
+        return osm.metres(a["lat"], a["lon"], b["lat"], b["lon"]) <= SAME_PLACE_M
+
+    groups = defaultdict(list)
+    for i, s in enumerate(spots):
+        groups[(norm(s["name"]), s["dest"], s["cat"])].append(i)
+    keep = {}                                  # first index of a merged group -> spot to put there
+    for idx in groups.values():
+        clusters = []                          # [first index, members]
+        for i in sorted(idx, key=lambda i: rich(spots[i]), reverse=True):
+            home = next((c for c in clusters if all(near(spots[i], spots[j]) for j in c[1])), None)
+            if home:
+                home[0] = min(home[0], i)
+                home[1].append(i)
+            else:
+                clusters.append([i, [i]])
+        for first, members in clusters:
+            best = dict(spots[members[0]])
+            for j in members[1:]:
+                for k in _FILL:
+                    if best.get(k) in (None, "") and spots[j].get(k) not in (None, ""):
+                        if k in ("lat", "lon"):
+                            if best["lat"] is None and spots[j]["lat"] is not None:
+                                best["lat"], best["lon"] = spots[j]["lat"], spots[j]["lon"]
+                        else:
+                            best[k] = spots[j][k]
+            keep[first] = best
+    return [keep[i] for i in range(len(spots)) if i in keep]
 
 
 # ---------- Wikidata ----------
@@ -387,10 +433,10 @@ def build_country(c, tree, platforms, cache_dir, log, out_dir=None):
     dropped = defaultdict(int)
     # depth-first by breadcrumb path keeps each article's listings together, regions in Wikivoyage order
     for pid in sorted(desc, key=lambda p: [titles[a] for a in desc[p]]):
-        spots.extend(page_spots(pid, pages[pid], desc[pid], titles, dropped))
+        spots.extend(page_spots(pid, pages[pid], desc[pid], titles, dropped, c["cc"]))
     if dropped:
         log(f"{c['cc']}: left out " + ", ".join(f"{n} {why}" for why, n in sorted(dropped.items())))
-    spots = dedupe(spots)
+    spots = merge_same_name(dedupe(spots))
     facts = wikidata_facts([s["wd"] for s in spots] + [s["dest_wd"] for s in spots], c.get("lang"))
     enrich(spots, facts)
     lookup = c.get("lookup") or {}
