@@ -1,0 +1,29 @@
+## v2026.10.17
+
+- Add feature map + coverage test (verify-app pilot rollout)
+- ci: commit data as the owner so Vercel deploys it
+- deploy: publish the 2026-10-15 rebuild (5f53032)
+- app: local-only use counters (link taps, sort, trip share/import)
+- app: Saved becomes the trip list (grouped, share link, import, Maps)
+- osm: grade osm_local by the main name's script (1 / 0.5 / 0)
+- app: honest ranking, top-10 shortlist, 3 s offline fallback
+- docs: contract lat/lon (Wikidata P625) and osm_local (area match)
+- ui: compact rows, one Where chip, first-open country ask
+- links: phone-specific TikTok and Xiaohongshu links
+- docs: D all-country CI numbers and the per-country osm_score switch
+- signal D on only where it favours local food; all countries rebuilt
+- docs: D built as osm_local, why the detail count was dropped, CI timing
+- sw: ulu-v7 (app.js changed after v6 was pushed)
+- signal D scores the local-language name only (osm_local); TH data
+- signal D: OpenStreetMap detail for food spots, fail-soft; A falls back per signal
+- docs: signal D measured on TH (59% match) + reliability requirements
+- docs: park signal B (Reddit approval-gated), decide D licence (score-only, ODbL)
+- classify: a leisure venue in the name vetoes heritage from the description
+- score: null ulu when a category has < 10 locality-scored spots
+- ui: "Most local" sort (default) + "Why it ranks here" evidence
+- score: signal A (local-language Wikipedia view share) + Ulu score v0
+- docs: handover for the Ulu score (locals' picks with visible evidence)
+- index: change document bytes so the new CSP reaches existing visitors
+- csp: allow *.wikimedia.org images (Commons redirects to thumb.wikimedia.org)
+- sw: stop intercepting Commons photos (blocked live by CSP)
+- Ulu v1: keyless SEA spot finder linking to local platforms
