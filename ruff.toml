@@ -1,0 +1,9 @@
+# Enforces one rule: every text-mode open() names its encoding.
+# Windows defaults to cp1252, which crashes on emoji/Unicode in JSON caches.
+# PLW1514 is a preview rule, so preview is on but only for rules selected by code.
+required-version = "==0.17.1"
+
+[lint]
+preview = true
+explicit-preview-rules = true
+select = ["PLW1514"]

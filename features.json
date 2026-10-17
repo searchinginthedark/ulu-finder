@@ -1,0 +1,637 @@
+{
+  "app": "UluFinder",
+  "about": "Feature map: what the app does, how a user reaches each feature, and how to prove it works. Run: python ../memory/tools/verify/verify.py . (from this folder). Add a feature here in the same commit that adds its control; verify.py --coverage and tests/test_features.py fail on any control id no feature mentions. Runs on the real data files in public/data (Thailand), so expectations are counts and state, never spot names. Out of reach headless: the real geolocation prompt, opening Wikivoyage/Google Maps/TikTok in a new tab, offline reopen, the share sheet, install.",
+  "root": "public",
+  "viewport": "375x812",
+  "setup": [
+    "localStorage.setItem('ulu.country','TH')"
+  ],
+  "ready": "!!window.ulu && (document.querySelectorAll('#feed .card').length > 0 || !document.getElementById('sheet').hidden)",
+  "ignore_controls": [],
+  "features": [
+    {
+      "id": "load",
+      "name": "Opens on the saved country with a short list and the data date",
+      "reach": "Open the app. The last country is remembered; the feed starts on a top-10 shortlist with 'Show all N' under it.",
+      "steps": [],
+      "expect": [
+        "document.getElementById('countryName').textContent !== 'Choose' && document.getElementById('countryName').textContent !== 'Country'",
+        "document.querySelectorAll('#feed .card').length > 0 && document.querySelectorAll('#feed .card').length <= 10",
+        "!document.getElementById('moreBtn').hidden && /^Show all \\d+$/.test(document.getElementById('moreBtn').textContent)",
+        "document.getElementById('savedCount').textContent === '0'",
+        "document.getElementById('tripbar').hidden",
+        "document.getElementById('sheet').hidden",
+        "!document.getElementById('whereBtn').disabled",
+        "document.getElementById('refreshed').textContent.startsWith('Spots data refreshed')",
+        "document.getElementById('attrib').textContent.length > 10",
+        "Object.keys(JSON.parse(localStorage.getItem('ulu.opens.v1') || '{}')).length === 1"
+      ]
+    },
+    {
+      "id": "first-open",
+      "name": "First open asks which country, never assumes one",
+      "reach": "Open the app with nothing stored: the sheet 'Where are you going?' lists the countries.",
+      "setup": [
+        "localStorage.removeItem('ulu.country')"
+      ],
+      "steps": [],
+      "expect": [
+        "!document.getElementById('sheet').hidden",
+        "document.getElementById('sheetTitle').textContent === 'Where are you going?'",
+        "document.getElementById('countryName').textContent === 'Choose'",
+        "document.querySelectorAll('#sheetBody .crow').length > 1",
+        "document.querySelectorAll('#feed .card').length === 0"
+      ]
+    },
+    {
+      "id": "country-switch",
+      "name": "Country button lists countries; picking one loads it and remembers it",
+      "reach": "Tap the country button (#countryBtn), tap another country.",
+      "steps": [
+        [
+          "js",
+          "window.__cc0 = localStorage.getItem('ulu.country') + '|' + document.getElementById('countryName').textContent"
+        ],
+        [
+          "click",
+          "#countryBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden"
+        ],
+        [
+          "js",
+          "window.__rows = document.querySelectorAll('#sheetBody .crow').length + '|' + document.querySelectorAll('#sheetBody .crow[aria-current=true]').length"
+        ],
+        [
+          "click_first",
+          "#sheetBody .crow:not([disabled]):not([aria-current])"
+        ],
+        [
+          "wait_js",
+          "!!window.__cc0 && (localStorage.getItem('ulu.country') + '|' + document.getElementById('countryName').textContent) !== window.__cc0 && document.querySelectorAll('#feed .card').length > 0"
+        ]
+      ],
+      "expect": [
+        "parseInt(window.__rows) > 2 && window.__rows.endsWith('|1')",
+        "document.getElementById('sheet').hidden",
+        "localStorage.getItem('ulu.country') !== window.__cc0.split('|')[0]"
+      ]
+    },
+    {
+      "id": "categories",
+      "name": "Category tabs narrow the list to one category",
+      "reach": "Tap a category tab under the header.",
+      "requires": "document.querySelectorAll('#catRow .tab').length > 1",
+      "steps": [
+        [
+          "click_first",
+          "#catRow .tab[aria-selected=false]"
+        ],
+        [
+          "wait_js",
+          "document.querySelectorAll('#catRow .tab[aria-selected=true]').length === 1 && document.querySelector('#catRow .tab').getAttribute('aria-selected') === 'false'"
+        ]
+      ],
+      "expect": [
+        "document.querySelectorAll('#feed .card').length > 0",
+        "new Set([...document.querySelectorAll('#feed .card')].map(c => [...c.classList].find(x => x.indexOf('cat-') === 0))).size === 1"
+      ]
+    },
+    {
+      "id": "where",
+      "name": "Where sheet narrows to a region or city",
+      "reach": "Tap Where (#whereBtn), pick a place from the list.",
+      "requires": "!document.getElementById('whereBtn').disabled",
+      "steps": [
+        [
+          "js",
+          "window.__w0 = document.getElementById('whereVal').textContent"
+        ],
+        [
+          "click",
+          "#whereBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden"
+        ],
+        [
+          "click_first",
+          "#sheetBody .crow:not([aria-current])"
+        ],
+        [
+          "wait_js",
+          "document.getElementById('whereVal').textContent !== window.__w0"
+        ]
+      ],
+      "expect": [
+        "document.getElementById('sheet').hidden",
+        "document.getElementById('whereVal').textContent !== window.__w0",
+        "!document.getElementById('status').textContent.startsWith('Could not')"
+      ]
+    },
+    {
+      "id": "where-search",
+      "name": "Where sheet filters places as you type, and says when none match",
+      "reach": "In the Where sheet type in the search box.",
+      "requires": "!document.getElementById('whereBtn').disabled",
+      "steps": [
+        [
+          "click",
+          "#whereBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden"
+        ],
+        [
+          "fill",
+          ".where-q",
+          "zzqqnomatch"
+        ],
+        [
+          "wait_js",
+          "document.querySelectorAll('#sheetBody .crow').length === 0"
+        ]
+      ],
+      "expect": [
+        "document.querySelector('#sheetBody .meta').textContent.includes('zzqqnomatch')"
+      ]
+    },
+    {
+      "id": "search",
+      "name": "Search narrows the list and reports when nothing matches",
+      "reach": "Type in Search spots (#search).",
+      "steps": [
+        [
+          "fill",
+          "#search",
+          "zzqqnomatch"
+        ],
+        [
+          "wait_js",
+          "document.getElementById('status').textContent.length > 0"
+        ]
+      ],
+      "expect": [
+        "document.querySelectorAll('#feed .card').length === 0",
+        "document.getElementById('status').textContent === 'No spots match these filters.'"
+      ]
+    },
+    {
+      "id": "search-clear",
+      "name": "Emptying the search brings the list back",
+      "reach": "Clear the search box.",
+      "steps": [
+        [
+          "fill",
+          "#search",
+          "zzqqnomatch"
+        ],
+        [
+          "wait_js",
+          "document.querySelectorAll('#feed .card').length === 0"
+        ],
+        [
+          "fill",
+          "#search",
+          " "
+        ],
+        [
+          "wait_js",
+          "document.querySelectorAll('#feed .card').length > 0"
+        ]
+      ],
+      "expect": [
+        "document.getElementById('status').textContent === ''",
+        "document.querySelectorAll('#feed .card').length <= 10"
+      ]
+    },
+    {
+      "id": "sort-famous-local",
+      "name": "Sort buttons switch between Most local and Famous",
+      "reach": "Tap Famous (#sortTop), then Most local (#sortLocal).",
+      "requires": "!document.getElementById('sortLocal').hidden",
+      "steps": [
+        [
+          "click",
+          "#sortTop"
+        ],
+        [
+          "js",
+          "window.__a = document.getElementById('sortTop').getAttribute('aria-pressed') + document.getElementById('sortLocal').getAttribute('aria-pressed')"
+        ],
+        [
+          "click",
+          "#sortLocal"
+        ]
+      ],
+      "expect": [
+        "window.__a === 'truefalse'",
+        "document.getElementById('sortLocal').getAttribute('aria-pressed') === 'true'",
+        "document.getElementById('sortTop').getAttribute('aria-pressed') === 'false'",
+        "document.querySelectorAll('#feed .card').length > 0",
+        "JSON.parse(localStorage.getItem('ulu.stats.v1') || '{}').sort.top === 1 && JSON.parse(localStorage.getItem('ulu.stats.v1') || '{}').sort.local === 1"
+      ]
+    },
+    {
+      "id": "sort-nearby",
+      "name": "Nearby orders spots by distance from you (location stubbed)",
+      "reach": "Tap Nearby (#sortNear) and allow location; cards show 'N km', nearest first.",
+      "requires": "!document.getElementById('sortNear').hidden",
+      "steps": [
+        [
+          "js",
+          "Object.defineProperty(navigator, 'geolocation', {value: {getCurrentPosition: (ok) => ok({coords: {latitude: 13.75, longitude: 100.5}})}, configurable: true}); 1"
+        ],
+        [
+          "click",
+          "#sortNear"
+        ],
+        [
+          "wait_js",
+          "document.getElementById('sortNear').getAttribute('aria-pressed') === 'true'"
+        ]
+      ],
+      "expect": [
+        "document.querySelectorAll('#feed .dist, #feed .photo-dist').length > 0",
+        "(() => { const v = [...document.querySelectorAll('#feed .dist, #feed .photo-dist')].map(e => parseFloat(e.textContent)); return v.every((x, i) => i === 0 || x >= v[i - 1]); })()",
+        "document.getElementById('note').hidden"
+      ]
+    },
+    {
+      "id": "sort-nearby-denied",
+      "name": "Nearby says so when location is refused, and falls back",
+      "reach": "Tap Nearby and refuse location.",
+      "steps": [
+        [
+          "js",
+          "Object.defineProperty(navigator, 'geolocation', {value: {getCurrentPosition: (ok, err) => err({code: 1})}, configurable: true}); 1"
+        ],
+        [
+          "click",
+          "#sortNear"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('note').hidden"
+        ]
+      ],
+      "expect": [
+        "document.getElementById('note').textContent.includes('denied')",
+        "document.getElementById('sortNear').getAttribute('aria-pressed') === 'false'",
+        "document.querySelectorAll('#feed .card').length > 0"
+      ]
+    },
+    {
+      "id": "sources",
+      "name": "Local sources sheet lists the platforms used for this country; Close shuts it",
+      "reach": "Tap Local sources (#srcBtn); Close (#sheetClose).",
+      "steps": [
+        [
+          "click",
+          "#srcBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden"
+        ],
+        [
+          "js",
+          "window.__t = document.getElementById('sheetTitle').textContent + '|' + document.querySelectorAll('#sheetBody li').length"
+        ],
+        [
+          "click",
+          "#sheetClose"
+        ]
+      ],
+      "expect": [
+        "window.__t.startsWith('Local sources: ')",
+        "parseInt(window.__t.split('|')[1]) > 0",
+        "document.getElementById('sheet').hidden"
+      ]
+    },
+    {
+      "id": "sheet-backdrop",
+      "name": "Tapping outside a sheet closes it",
+      "reach": "With a sheet open tap the dimmed area behind it (scripted click on #sheetBackdrop; the real tap needs a phone).",
+      "steps": [
+        [
+          "click",
+          "#srcBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden"
+        ],
+        [
+          "js",
+          "document.getElementById('sheetBackdrop').click(); 1"
+        ]
+      ],
+      "expect": [
+        "document.getElementById('sheet').hidden"
+      ]
+    },
+    {
+      "id": "details",
+      "name": "A card opens to evidence, links and Save; tapping again closes it",
+      "reach": "Tap a card. Details show 'Why it ranks here', local-platform links and the Wikivoyage source.",
+      "steps": [
+        [
+          "click_first",
+          "#feed .card-hit"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#feed .detail .links') && (document.querySelectorAll('#feed .detail .plat').length > 0 || !!document.querySelector('#feed .detail .links .meta'))"
+        ],
+        [
+          "js",
+          "window.__open = document.querySelector('#feed .card-hit').getAttribute('aria-expanded') + document.querySelector('#feed .card-hit .more').textContent"
+        ],
+        [
+          "click_first",
+          "#feed .card-hit"
+        ]
+      ],
+      "expect": [
+        "window.__open === 'trueHide'",
+        "document.querySelector('#feed .card-hit').getAttribute('aria-expanded') === 'false'",
+        "document.querySelector('#feed .detail').hidden",
+        "document.querySelector('#feed .detail .ev-head').textContent === 'Why it ranks here'",
+        "!!document.querySelector('#feed .detail .save')",
+        "document.querySelector('#feed .detail .srcl') ? document.querySelector('#feed .detail .srcl').href.includes('wikivoyage') : true"
+      ]
+    },
+    {
+      "id": "link-count",
+      "name": "A tap on a platform link is counted locally, never sent",
+      "reach": "Tap the platform link on a card (here with navigation held, so no tab opens).",
+      "requires": "!!document.querySelector('#feed a.qlink')",
+      "steps": [
+        [
+          "js",
+          "document.querySelector('#feed a.qlink').addEventListener('click', e => e.preventDefault()); 1"
+        ],
+        [
+          "click_first",
+          "#feed a.qlink"
+        ]
+      ],
+      "expect": [
+        "Object.keys(JSON.parse(localStorage.getItem('ulu.stats.v1') || '{}').links || {}).length === 1",
+        "Object.values(JSON.parse(localStorage.getItem('ulu.stats.v1') || '{}').links)[0] === 1",
+        "/^https?:/.test(document.querySelector('#feed a.qlink').href)",
+        "document.querySelector('#feed a.qlink').target === '_blank'"
+      ]
+    },
+    {
+      "id": "save",
+      "name": "Save adds a spot to the trip list and the Saved count",
+      "reach": "Open a card, tap Save (.save).",
+      "steps": [
+        [
+          "click_first",
+          "#feed .card-hit"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#feed .detail .save')"
+        ],
+        [
+          "click",
+          "#feed .detail .save"
+        ]
+      ],
+      "expect": [
+        "document.getElementById('savedCount').textContent === '1'",
+        "Object.keys(JSON.parse(localStorage.getItem('ulu.saved.v1') || '{}')).length === 1",
+        "document.querySelector('#feed .detail .save').getAttribute('aria-pressed') === 'true'",
+        "document.querySelector('#feed .detail .save').textContent === 'Saved'"
+      ]
+    },
+    {
+      "id": "saved-view",
+      "name": "Saved shows the trip list grouped by country and place, with a Maps link",
+      "reach": "Save a spot, tap Saved (#savedBtn): spots are grouped under 'Country > place'; each has 'Open in Google Maps'. Tap Saved again to go back.",
+      "steps": [
+        [
+          "click_first",
+          "#feed .card-hit"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#feed .detail .save')"
+        ],
+        [
+          "click",
+          "#feed .detail .save"
+        ],
+        [
+          "click",
+          "#savedBtn"
+        ],
+        [
+          "wait_js",
+          "document.getElementById('savedBtn').getAttribute('aria-pressed') === 'true'"
+        ],
+        [
+          "js",
+          "window.__v = document.querySelectorAll('#feed .card').length + '|' + document.querySelectorAll('#feed .grp').length + '|' + document.getElementById('filters').hidden + '|' + !document.getElementById('tripbar').hidden"
+        ],
+        [
+          "click",
+          "#savedBtn"
+        ],
+        [
+          "wait_js",
+          "document.getElementById('savedBtn').getAttribute('aria-pressed') === 'false'"
+        ]
+      ],
+      "expect": [
+        "window.__v === '1|1|true|true'",
+        "!document.getElementById('filters').hidden",
+        "document.getElementById('tripbar').hidden",
+        "document.querySelectorAll('#feed .card').length > 0"
+      ]
+    },
+    {
+      "id": "saved-maps",
+      "name": "Each saved spot links to Google Maps",
+      "reach": "In Saved, 'Open in Google Maps' (.mlink) opens the spot in Maps.",
+      "steps": [
+        [
+          "click_first",
+          "#feed .card-hit"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#feed .detail .save')"
+        ],
+        [
+          "click",
+          "#feed .detail .save"
+        ],
+        [
+          "click",
+          "#savedBtn"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#feed a.mlink')"
+        ]
+      ],
+      "expect": [
+        "document.querySelector('#feed a.mlink').textContent === 'Open in Google Maps'",
+        "document.querySelector('#feed a.mlink').href.startsWith('https://www.google.com/maps/search/?api=1&query=')",
+        "document.querySelector('#feed a.mlink').target === '_blank'"
+      ]
+    },
+    {
+      "id": "share",
+      "name": "Share or back up gives a link that holds the trip list in its hash",
+      "reach": "In Saved tap 'Share or back up' (#shareBtn); Copy link copies it. Nothing goes to a server.",
+      "steps": [
+        [
+          "click_first",
+          "#feed .card-hit"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#feed .detail .save')"
+        ],
+        [
+          "click",
+          "#feed .detail .save"
+        ],
+        [
+          "click",
+          "#savedBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('tripbar').hidden"
+        ],
+        [
+          "js",
+          "Object.defineProperty(navigator, 'clipboard', {value: {writeText: () => Promise.resolve()}, configurable: true}); 1"
+        ],
+        [
+          "click",
+          "#shareBtn"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden"
+        ],
+        [
+          "js",
+          "window.__u = document.querySelector('#sheetBody .share-url').value"
+        ],
+        [
+          "click",
+          "#sheetBody .btn-solid"
+        ],
+        [
+          "wait_js",
+          "!!document.querySelector('#sheetBody [role=status]') && document.querySelector('#sheetBody [role=status]').textContent.length > 0"
+        ]
+      ],
+      "expect": [
+        "window.__u.includes('#trip=') && /#trip=[A-Z]{2}\\.[A-Za-z0-9_-]+$/.test(window.__u)",
+        "document.getElementById('sheetTitle').textContent === 'Share trip list'",
+        "document.querySelector('#sheetBody [role=status]').textContent === 'Link copied.'",
+        "JSON.parse(localStorage.getItem('ulu.stats.v1') || '{}').trip.share_opened === 1"
+      ]
+    },
+    {
+      "id": "import",
+      "name": "Opening a shared trip link offers to add its spots to your list",
+      "reach": "Open a link ending #trip=TH.<id>: a sheet asks 'Add 1 spot to your saved list?'; Add (.btn-solid) keeps what you had and opens Saved.",
+      "steps": [
+        [
+          "js",
+          "fetch('data/' + localStorage.getItem('ulu.country') + '.json').then(r => r.json()).then(d => { window.__id = d.spots[0].id; window.__cc = localStorage.getItem('ulu.country'); }); 1"
+        ],
+        [
+          "wait_js",
+          "!!window.__id"
+        ],
+        [
+          "js",
+          "setTimeout(() => { location.href = location.pathname + '?imp=' + Date.now() + '#trip=' + window.__cc + '.' + window.__id; }, 0); 1"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden && document.getElementById('sheetTitle').textContent === 'Shared trip list'"
+        ],
+        [
+          "js",
+          "window.__q = document.getElementById('sheetBody').textContent"
+        ],
+        [
+          "click",
+          "#sheetBody .btn-solid"
+        ],
+        [
+          "wait_js",
+          "document.getElementById('savedBtn').getAttribute('aria-pressed') === 'true'"
+        ]
+      ],
+      "expect": [
+        "window.__q.startsWith('Add 1 spot to your saved list?')",
+        "Object.keys(JSON.parse(localStorage.getItem('ulu.saved.v1') || '{}')).length === 1",
+        "document.getElementById('savedCount').textContent === '1'",
+        "JSON.parse(localStorage.getItem('ulu.stats.v1') || '{}').trip.imported === 1",
+        "location.hash === ''"
+      ]
+    },
+    {
+      "id": "import-missing",
+      "name": "A trip link with unknown spots says so and adds nothing",
+      "reach": "Open a link whose ids do not exist (older version): the sheet says none could be found; Close (.btn-line) leaves your list alone.",
+      "steps": [
+        [
+          "js",
+          "setTimeout(() => { location.href = location.pathname + '?imp=' + Date.now() + '#trip=TH.nosuchid'; }, 0); 1"
+        ],
+        [
+          "wait_js",
+          "!document.getElementById('sheet').hidden && document.getElementById('sheetTitle').textContent === 'Shared trip list'"
+        ]
+      ],
+      "expect": [
+        "document.getElementById('sheetBody').textContent.includes('None of these spots could be found')",
+        "Object.keys(JSON.parse(localStorage.getItem('ulu.saved.v1') || '{}')).length === 0",
+        "location.hash === ''"
+      ]
+    },
+    {
+      "id": "show-all",
+      "name": "Show all lifts the top-10 cap",
+      "reach": "Under the shortlist tap 'Show all N' (#moreBtn).",
+      "requires": "!document.getElementById('moreBtn').hidden",
+      "steps": [
+        [
+          "js",
+          "window.__n = parseInt(document.getElementById('moreBtn').textContent.replace('Show all ', ''))"
+        ],
+        [
+          "click",
+          "#moreBtn"
+        ],
+        [
+          "wait_js",
+          "document.querySelectorAll('#feed .card').length > 10"
+        ]
+      ],
+      "expect": [
+        "document.querySelectorAll('#feed .card').length === Math.min(window.__n, 34)",
+        "document.getElementById('moreBtn').hidden"
+      ]
+    }
+  ]
+}
