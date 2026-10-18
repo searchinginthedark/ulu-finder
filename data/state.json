@@ -1,5 +1,5 @@
 {
- "built": "2026-10-15T16:25:18Z",
+ "built": "2026-10-18T22:00:17Z",
  "ok": [
   "BN",
   "CN",
@@ -12,12 +12,13 @@
   "MM",
   "MO",
   "MY",
-  "PH",
   "SG",
   "TH",
   "TL",
   "TW",
   "VN"
  ],
- "failed": {}
+ "failed": {
+  "PH": "FetchError: https://en.wikivoyage.org/w/api.php: HTTP Error 429: Too Many Requests"
+ }
 }
