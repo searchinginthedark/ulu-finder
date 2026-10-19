@@ -1,3 +1,7 @@
+## v2026.10.19.2
+
+- ci: a partial collect or osm run goes red after committing
+
 ## v2026.10.19
 
 - Order Most-local ties by neighbourhood local-name share
