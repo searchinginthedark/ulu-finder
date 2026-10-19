@@ -74,6 +74,18 @@ class UluTest(unittest.TestCase):
         ulu_scores(pool)
         self.assertTrue(all(isinstance(s["ulu"], int) for s in pool))
 
+    def test_neighbourhood_share_never_scores(self):
+        # osm_nb_local is a tie-break for the app's sort only (ruled 2026-10-15): it must change no
+        # score, give no score on its own, and never count toward MIN_POOL
+        base = [spot("dine", local_share=i / 10) for i in range(MIN_POOL)]
+        with_nb = [spot("dine", local_share=i / 10, osm_nb_local=1 - i / 10) for i in range(MIN_POOL)]
+        ulu_scores(base)
+        ulu_scores(with_nb)
+        self.assertEqual([s["ulu"] for s in base], [s["ulu"] for s in with_nb])
+        alone = [spot("dine", osm_nb_local=i / 20) for i in range(MIN_POOL + 5)]
+        ulu_scores(alone)
+        self.assertTrue(all(s["ulu"] is None for s in alone))
+
     def test_fame_only_spots_do_not_fill_the_pool(self):
         pool = [spot("activities", local_share=i / 10) for i in range(MIN_POOL - 1)]
         pool += [spot("activities", sitelinks=50) for _ in range(5)]

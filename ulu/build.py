@@ -460,7 +460,8 @@ def build_country(c, tree, platforms, cache_dir, log, out_dir=None):
         carry_lookups(spots, carry)
     # Only where tools/osm_check.py showed the signal favours local food; elsewhere it ran
     # backwards (PH, KH, LA, MM) or had nothing to measure (ID, SG). See countries.json _doc.
-    osm_date = osm.attach(spots, c["cc"], log=log, use_area=c.get("osm_area", True)) if c.get("osm_score") else None
+    osm_date = osm.attach(spots, c["cc"], log=log, use_area=c.get("osm_area", True),
+                          use_nb=c.get("osm_nb", True)) if c.get("osm_score") else None
     if osm_date:
         as_of["osm"] = osm_date
     score.ulu_scores(spots)

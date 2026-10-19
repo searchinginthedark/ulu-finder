@@ -37,7 +37,9 @@ def verdict(rows):
         u = [r[1] for r in rows if r[0] == lbl and r[1] is not None]
         return sum(u) / len(u) if u else None
     loc, forn = mean("L"), mean("F")
-    top = sorted((r for r in rows if r[1] is not None), key=lambda r: -r[1])[:30]
+    # the app's "Most local" order: score, then osm_nb_local (missing after present), then file order
+    top = sorted((r for r in rows if r[1] is not None),
+                 key=lambda r: (-r[1], r[2] is None, -(r[2] or 0)))[:30]
     base = sum(1 for r in rows if r[0] == "F") / len(rows)
     top_share = sum(1 for r in top if r[0] == "F") / len(top) if top else 1
     ok = loc is not None and forn is not None and loc - forn >= 5 and top_share <= base + 0.05
@@ -54,6 +56,13 @@ def main():
         areas = {cc: False for cc in areas}
     if "--area" in sys.argv:     # ... and with every area match counted
         areas = {cc: True for cc in areas}
+    # the osm_nb_local tie-break inside the top 30, as the build applies it (countries.json osm_nb);
+    # --no-nb = ties in file order only, --nb = tie-break everywhere: compare the two before flipping it
+    nbs = {c["cc"]: c.get("osm_nb", True) for c in conf}
+    if "--no-nb" in sys.argv:
+        nbs = {cc: False for cc in nbs}
+    if "--nb" in sys.argv:
+        nbs = {cc: True for cc in nbs}
     for cc in sorted(flags):
         path = os.path.join(root, "public", "data", f"{cc}.json")
         if not os.path.exists(path):
@@ -62,7 +71,7 @@ def main():
             spots = copy.deepcopy(json.load(f)["spots"])
         for s in spots:  # rebuild signals as the build would with D on: A + sitelinks, then D
             s["signals"] = {k: v for k, v in (s.get("signals") or {}).items() if k in A_KEYS}
-        if not osm.attach(spots, cc, root, log=lambda m: None, use_area=areas.get(cc, True)):
+        if not osm.attach(spots, cc, root, log=lambda m: None, use_area=areas.get(cc, True), use_nb=nbs.get(cc, True)):
             print(f"{cc}: no usable data/osm file")
             continue
         score.ulu_scores(spots)
@@ -70,8 +79,10 @@ def main():
         for s in spots:
             if s["cat"] in osm.FOOD and "osm_local" in s["signals"]:
                 f, l = bool(FOREIGN.search(s["desc"])), bool(LOCALISH.search(s["desc"]))
-                rows.append(("F" if f and not l else "L" if l and not f else "?", s["ulu"]))
-        print(f"{cc}: config {'on ' if flags[cc] else 'off'}{'' if areas.get(cc, True) else ' (no area)'} | {verdict(rows)}")
+                rows.append(("F" if f and not l else "L" if l and not f else "?", s["ulu"],
+                             s["signals"].get("osm_nb_local")))
+        print(f"{cc}: config {'on ' if flags[cc] else 'off'}{'' if areas.get(cc, True) else ' (no area)'}"
+              f"{'' if nbs.get(cc, True) else ' (no nb)'} | {verdict(rows)}")
 
 
 if __name__ == "__main__":

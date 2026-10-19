@@ -270,9 +270,110 @@ class AttachTest(unittest.TestCase):
         self.assertIsNone(osm.attach([self.food], "VN", self.root, log=lambda m: None))
         self.assertEqual(self.food["signals"], {})
 
+    def write_nb(self, nb, nb_area=()):
+        self.write("2026-10-17")
+        path = os.path.join(self.root, "data", "osm", "TH.json")
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["nb"], doc["nb_area"] = nb, list(nb_area)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+
+    def test_neighbourhood_share_is_attached(self):
+        # also on a food spot OSM never matched, and with no osm_local (it is not a match signal)
+        lone = spot("Khao Soi Mae Sai")
+        self.write_nb({osm.spot_key(self.food): 0.4, osm.spot_key(lone): 0.25, osm.spot_key(self.temple): 0.9})
+        osm.attach([self.food, lone, self.temple], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)
+        self.assertEqual(self.food["signals"], {"osm_local": 1, "osm_nb_local": 0.4})
+        self.assertEqual(lone["signals"], {"osm_nb_local": 0.25})
+        # near-miss: a culture spot never gets it, even if a file carried one
+        self.assertEqual(self.temple["signals"], {})
+
+    def test_neighbourhood_located_by_area_follows_osm_area(self):
+        lost_ = spot("Khao Soi Mae Sai", lat=None, lon=None)
+        self.write_nb({osm.spot_key(lost_): 0.3, osm.spot_key(self.food): 0.4}, nb_area=[osm.spot_key(lost_)])
+        osm.attach([lost_, self.food], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None, use_area=False)
+        self.assertEqual(lost_["signals"], {})
+        # near-miss: the geolocated spot keeps its share with area matches off
+        self.assertEqual(self.food["signals"]["osm_nb_local"], 0.4)
+
+    def test_neighbourhood_can_be_switched_off(self):
+        # JP, MY (countries.json osm_nb: false): the tie-break made the top 30 more foreign there.
+        # osm_local is untouched; near-miss: the same file with use_nb on attaches the share.
+        self.write_nb({osm.spot_key(self.food): 0.4})
+        osm.attach([self.food], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None, use_nb=False)
+        self.assertEqual(self.food["signals"], {"osm_local": 1})
+        self.food["signals"] = {}
+        osm.attach([self.food], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)
+        self.assertEqual(self.food["signals"], {"osm_local": 1, "osm_nb_local": 0.4})
+
+    def test_file_without_neighbourhood_is_no_data(self):
+        self.write("2026-10-17")
+        osm.attach([self.food], "TH", self.root, today=date(2026, 10, 18), log=lambda m: None)
+        self.assertNotIn("osm_nb_local", self.food["signals"])
+
     def test_key_survives_recategorisation(self):
         moved = dict(self.food, cat="cafes", id="other")
         self.assertEqual(osm.spot_key(moved), osm.spot_key(self.food))
+
+
+class NeighbourhoodTest(unittest.TestCase):
+    """Share of named food places within NB_RADIUS whose MAIN name is in the local script."""
+
+    def street(self, thai, other, start=20):
+        pois = [food_poi([f"ร้าน{i}"], start + 10 * i) for i in range(thai)]
+        pois += [food_poi([f"Bar {i}"], start + 10 * (thai + i), amenity="bar") for i in range(other)]
+        return pois
+
+    def nb(self, spots, pois, found=()):
+        return osm.neighbourhood(spots, pois, "th", found)
+
+    def test_share_of_local_main_names(self):
+        s = spot("Khao Soi Mae Sai")
+        got, area = self.nb([s], self.street(3, 2))
+        self.assertEqual(got, {osm.spot_key(s): 0.6})
+        self.assertEqual(area, set())
+
+    def test_fewer_than_five_is_no_measurement(self):
+        s = spot("Khao Soi Mae Sai")
+        self.assertEqual(self.nb([s], self.street(3, 1))[0], {})  # near-miss of the test above: 4 places
+
+    def test_only_within_the_radius(self):
+        s = spot("Khao Soi Mae Sai")
+        pois = self.street(3, 2) + [food_poi(["ร้านไกล"], osm.NB_RADIUS + 40)]
+        self.assertEqual(self.nb([s], pois)[0], {osm.spot_key(s): 0.6})
+
+    def test_translation_is_not_a_main_name(self):
+        # name:th under a Latin main name counts as foreign here, as osm_local's 0.5 says it is
+        s = spot("Khao Soi Mae Sai")
+        pois = self.street(2, 2) + [food_poi(["Wombat", "วอมแบท"], 70, **{"name:th": "วอมแบท"})]
+        self.assertEqual(self.nb([s], pois)[0], {osm.spot_key(s): 0.4})
+
+    def test_non_food_places_are_not_counted(self):
+        s = spot("Khao Soi Mae Sai")
+        pois = self.street(3, 2) + [poi(["วัดใหม่"], 70, amenity="place_of_worship")]
+        self.assertEqual(self.nb([s], pois)[0], {osm.spot_key(s): 0.6})
+
+    def test_own_match_is_left_out(self):
+        s = spot("Khao Soi Mae Sai")
+        pois = self.street(3, 3)
+        mine = pois[0]
+        got, _ = self.nb([s], pois, [(osm.spot_key(s), mine, None)])
+        self.assertEqual(got, {osm.spot_key(s): 0.4})   # 2 Thai of 5 others
+        self.assertEqual(self.nb([s], pois)[0], {osm.spot_key(s): 0.5})  # near-miss: unmatched, all 6
+
+    def test_spot_without_coords_uses_its_area_match(self):
+        s = spot("Khao Soi Mae Sai", lat=None, lon=None)
+        pois = self.street(4, 2)
+        got, area = self.nb([s], pois, [(osm.spot_key(s), pois[0], "area")])
+        self.assertEqual(got, {osm.spot_key(s): 0.6})
+        self.assertEqual(area, {osm.spot_key(s)})
+        self.assertIsNone(s["lat"])   # licence: the place's location is never written to the spot
+        self.assertEqual(self.nb([s], pois)[0], {})   # near-miss: no match, no location, no share
+
+    def test_food_only(self):
+        s = spot("Wat Lok Moli", cat="culture")
+        self.assertEqual(self.nb([s], self.street(5, 0))[0], {})
 
 
 class LookupFallbackTest(unittest.TestCase):

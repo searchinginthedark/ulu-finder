@@ -237,10 +237,15 @@
     var sort = effectiveSort();
     if (sort === 'local') {
       // Unscored spots keep the file's own (Famous) order after the scored ones; sort is stable.
+      // Equal scores: the street with more local-script names first (osm_nb_local, a tie-break
+      // only, never part of the score), spots without that measurement after those with it.
       out.sort(function (a, b) {
         var x = typeof a.spot.ulu === 'number' ? a.spot.ulu : -1;
         var y = typeof b.spot.ulu === 'number' ? b.spot.ulu : -1;
-        return y - x;
+        if (y !== x || x < 0) return y - x;
+        var p = nbLocal(a.spot), q = nbLocal(b.spot);
+        if (p === null || q === null) return p === q ? 0 : (p === null ? 1 : -1);
+        return q - p;
       });
     } else if (sort === 'near' && S.pos) {
       out.forEach(function (it) {
@@ -256,6 +261,11 @@
       });
     }
     return out;
+  }
+
+  function nbLocal(s) {
+    var v = s.signals && s.signals.osm_nb_local;
+    return typeof v === 'number' ? v : null;
   }
 
   // How many spots in the current place + category carry an Ulu score. The search box is ignored

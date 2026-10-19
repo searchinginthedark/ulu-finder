@@ -412,12 +412,13 @@ def parse_md5(text):
 
 # ---------- the build reads this (no pyosmium needed) ----------
 
-def attach(spots, cc, root=ROOT, today=None, log=print, use_area=True):
+def attach(spots, cc, root=ROOT, today=None, log=print, use_area=True, use_nb=True):
     """Add osm_* signals from data/osm/<CC>.json. Returns the extract date, or None when there is
     no usable file. A missing or too-old file means the build simply has no D this week; it never
     reads as 'matched nothing', and it never touches any other field.
     use_area=False skips area matches (countries.json `osm_area: false`): the holdout says WHICH
-    place, tools/osm_check.py says whether scoring it ranks local food higher; both must pass."""
+    place, tools/osm_check.py says whether scoring it ranks local food higher; both must pass.
+    use_nb=False (countries.json `osm_nb: false`) leaves out the osm_nb_local tie-break."""
     path = os.path.join(root, "data", "osm", f"{cc}.json")
     if not os.path.exists(path):
         return None
@@ -434,11 +435,18 @@ def attach(spots, cc, root=ROOT, today=None, log=print, use_area=True):
         log(f"  osm: {cc} extract is {age} days old (limit {MAX_FILE_AGE}); not used")
         return None
     entries = doc.get("spots") or {}
+    # Tie-break only (neighbourhood()); absent from files written before 2026-10-19 = no data.
+    nb = (doc.get("nb") or {}) if use_nb else {}
+    nb_area = set(doc.get("nb_area") or ())
     n = 0
     for s in spots:
         if s.get("cat") not in FOOD:
             continue
-        e = entries.get(spot_key(s))
+        key = spot_key(s)
+        share = nb.get(key)
+        if share is not None and (use_area or key not in nb_area):
+            s.setdefault("signals", {})["osm_nb_local"] = share
+        e = entries.get(key)
         if not e or (not use_area and e.get("via") == "area"):
             continue
         sig = s.setdefault("signals", {})
@@ -541,7 +549,9 @@ def read_pois(path, spots):
     # and the areas of destinations holding food spots without coords (area_match)
     area = areas(spots)
     wanted = {area_key(s) for s in spots if s.get("cat") in FOOD and (s.get("lat") is None or s.get("lon") is None)}
-    cells |= area_cells([area[k] for k in wanted if k in area])
+    # padded by one cell: an area-matched place near the edge still needs its NB_RADIUS ring read
+    cells |= {(gy + dy, gx + dx) for gy, gx in area_cells([area[k] for k in wanted if k in area])
+              for dy in (-1, 0, 1) for dx in (-1, 0, 1)}
 
     def keep(tags, lat, lon):
         if (int(lat // CELL), int(lon // CELL)) not in cells:
@@ -579,13 +589,67 @@ def read_pois(path, spots):
     return h.out
 
 
-def build_entries(spots, pois, lang, use_area=True):
-    """Point matches for geolocated food spots; area matches (via "area") for the rest when the
-    country's holdout trusts them."""
-    entries = {}
+def find(spots, pois, use_area=True):
+    """[(spot_key, poi, via)]: point matches, then area matches when the holdout trusts them."""
     found = [(k, p, None) for k, p in match(spots, pois).items()]
     if use_area:
         found += [(k, p, "area") for k, p in area_match(spots, pois).items()]
+    return found
+
+
+# ---------- neighbourhood local-name share: a TIE-BREAK for "Most local", never a score ----------
+# Ruled 2026-10-15. On TH, local-described food sits among 24% local main names, foreign-described
+# among 13%, so inside a tie of equal Ulu scores this orders the local-looking street first. It
+# was rejected as a score WEIGHT (TH top-30 foreign 3% -> 10%): score.WEIGHTS never reads it.
+NB_RADIUS = 300.0       # metres around the spot
+NB_MIN = 5              # fewer named food places than this around it is no measurement
+
+
+def neighbourhood(spots, pois, lang, found=()):
+    """({spot_key: share}, {spot_keys located by an area match}) for food spots.
+
+    share = named food POIs within NB_RADIUS whose MAIN `name` is in the local script, over all
+    named food POIs there, the spot's own matched POI left out (its name is already osm_local).
+    A spot is located by its own coords, else by its area-matched POI: used for this number only,
+    never written as coordinates (ODbL, see the module docstring)."""
+    grid = defaultdict(list)
+    for p in pois:
+        if is_food_poi(p["tags"]):
+            grid[(int(p["lat"] // CELL), int(p["lon"] // CELL))].append(p)
+    own = {k: (p, via) for k, p, via in found}
+    out, via_area = {}, set()
+    for s in spots:
+        if s.get("cat") not in FOOD:
+            continue
+        key = spot_key(s)
+        p, via = own.get(key, (None, None))
+        if s.get("lat") is not None and s.get("lon") is not None:
+            lat, lon = s["lat"], s["lon"]
+        elif p is not None and via == "area":
+            lat, lon = p["lat"], p["lon"]
+        else:
+            continue
+        gy, gx = int(lat // CELL), int(lon // CELL)
+        n = local = 0
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                for q in grid.get((gy + dy, gx + dx), ()):
+                    if q is p or metres(lat, lon, q["lat"], q["lon"]) > NB_RADIUS:
+                        continue
+                    n += 1
+                    local += in_local_script(q["tags"].get("name", ""), lang)
+        if n >= NB_MIN:
+            out[key] = round(local / n, 3)
+            if s.get("lat") is None or s.get("lon") is None:
+                via_area.add(key)
+    return out, via_area
+
+
+def build_entries(spots, pois, lang, use_area=True, found=None):
+    """Point matches for geolocated food spots; area matches (via "area") for the rest when the
+    country's holdout trusts them."""
+    entries = {}
+    found = find(spots, pois, use_area) if found is None else found
     for key, p, via in found:
         d, has, chain = detail(p["tags"], lang)
         e = {"d": d}
@@ -655,7 +719,9 @@ def run_extract(osm_path, countries, workdir, keep_file, log):
         picks, ok = area_holdout(spots, pois)
         use_area = area_trusted(picks, ok)
         log(f"{cc}: area holdout {ok}/{picks} within {HOLDOUT_OK:.0f} m -> area match {'ON' if use_area else 'off'}")
-        entries = build_entries(spots, pois, c.get("lang"), use_area)
+        found = find(spots, pois, use_area)
+        entries = build_entries(spots, pois, c.get("lang"), use_area, found=found)
+        nb, nb_area = neighbourhood(spots, pois, c.get("lang"), found)
         prev = load_json(out)
         prev_n = prev.get("matched") if prev else None
         food = sum(1 for s in spots if s.get("cat") in FOOD and s.get("lat") is not None)
@@ -667,10 +733,11 @@ def run_extract(osm_path, countries, workdir, keep_file, log):
                          "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                          "food_spots_with_coords": food, "matched": len(entries),
                          "area": {"holdout_picks": picks, "holdout_within_300m": ok, "used": use_area},
-                         "spots": entries})
+                         "spots": entries, "nb": nb, "nb_area": sorted(nb_area)})
         area_n = sum(1 for e in entries.values() if e.get("via") == "area")
         log(f"{cc}: matched {len(entries) - area_n} of {food} food spots with coords, {area_n} without "
-            f"by area ({sum(1 for e in entries.values() if e.get('chain'))} chains)")
+            f"by area ({sum(1 for e in entries.values() if e.get('chain'))} chains); "
+            f"neighbourhood share for {len(nb)} ({len(nb_area)} located by area)")
     if not keep_file:
         for p in {pbf, src}:
             if os.path.exists(p):

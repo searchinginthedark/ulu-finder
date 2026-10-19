@@ -36,6 +36,14 @@ class ConfigTest(unittest.TestCase):
                     self.assertIs(c["osm_score"], True)  # absent = off; never a string "false"
                     self.assertTrue(c.get("osm"))
 
+    def test_osm_nb_is_an_opt_out(self):
+        # absent = on; a string "false" would be truthy and silently keep the tie-break
+        for c in load("countries.json")["countries"]:
+            if "osm_nb" in c:
+                with self.subTest(cc=c["cc"]):
+                    self.assertIs(c["osm_nb"], False)
+                    self.assertIs(c.get("osm_score"), True)  # meaningless where D is off
+
     def test_templates(self):
         for pid, p in load("platforms.json")["platforms"].items():
             with self.subTest(pid=pid):

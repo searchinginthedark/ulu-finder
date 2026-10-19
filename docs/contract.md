@@ -86,7 +86,8 @@ Field rules (the app must cope with every one being empty):
   percentile among a handful is noise. The app tells the two apart by whether `signals` holds a locality key.
   Fame (`sitelinks`) alone never produces a score. Percentiles are per category within the country,
   so 74 means "more local-skewed than most Sights in Malaysia", not an absolute rating.
-  Spots are NOT sorted by it; the app sorts ("Most local" = ulu desc, nulls last).
+  Spots are NOT sorted by it; the app sorts ("Most local" = ulu desc, nulls last; equal scores by
+  `signals.osm_nb_local`, see below).
 - `signals`: only what was measured; an ABSENT key means no data, never zero. Show measurements, never
   a verdict ("82% of Wikipedia lookups are in Malay", not "locals love this").
   - `local_views`: human pageviews of the spot's article on the `lookup_lang` Wikipedia, last 12 full months.
@@ -109,7 +110,17 @@ Field rules (the app must cope with every one being empty):
     ignores it. Say "Named in Thai on OpenStreetMap" / "Has a Thai name on OpenStreetMap, but its main
     name is not Thai" / "No Thai name on OpenStreetMap".
   - `osm_chain`: `true` when the OpenStreetMap place carries a `brand` tag. Say "part of a chain".
-  - `osm_local`, `osm_chain` and `ulu` (partly computed from them) are OpenStreetMap-derived
+  - `osm_nb_local`: 0-1, food categories only, in countries where `osm_score` is on and `osm_nb` is
+    not false (off for JP and MY: there it made tools/osm_check.py's top 30 more foreign). The share of
+    named food/drink places on OpenStreetMap within 300 m of the spot whose MAIN `name` is in the
+    local script (same script test as `osm_local`; a `name:<lang>` translation does not count), the
+    spot's own matched place left out. Present only when there are >= 5 such places. The spot is
+    located by its own `lat`/`lon`, else by its area-matched place (only where `osm_area` is on);
+    that location is used for this number only and never published. A TIE-BREAK, never a score
+    input: "Most local" sorts `ulu` desc, then `osm_nb_local` desc with absent values after present
+    ones, then file order (ruled 2026-10-15; as a score weight it pushed TH top-30 foreign 3% -> 10%).
+    Not shown as evidence. Absent from files whose `data/osm/<CC>.json` predates it (no `nb` map).
+  - `osm_local`, `osm_chain`, `osm_nb_local` and `ulu` (partly computed from them) are OpenStreetMap-derived
     and available under the ODbL; every other field is not, and OpenStreetMap NEVER changes `name`,
     `lat`/`lon`, `cat`, `desc` or any other Wikivoyage field (licence: docs/handover-ulu-score.md 3.D).
   - Planned, not yet emitted: `mentions` + `mention_url` (local subreddits; parked).
