@@ -1,3 +1,7 @@
+## v2026.10.19
+
+- Order Most-local ties by neighbourhood local-name share
+
 ## v2026.10.17
 
 - Add feature map + coverage test (verify-app pilot rollout)
