@@ -26,13 +26,16 @@ jobs:
       - name: Tests
         run: python -m unittest discover -s tests -t .
       - name: Build
-        # exit 1 = some countries failed and kept last week's file: still commit the rest.
+        id: build
+        # exit 1 = some countries failed and kept last week's file: still commit the rest,
+        # then go red in the last step so the failure emails you (a green partial run is silent).
         # exit 2 = nothing built: fail the run, write nothing.
         run: |
           set +e
           python -m ulu.build
           rc=$?
           echo "build rc=$rc"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
           cat data/state.json
           if [ "$rc" = "2" ]; then exit 1; fi
           exit 0
@@ -48,3 +51,9 @@ jobs:
           git commit -m "data: weekly collect $(date -u +%Y-%m-%d)"
           git pull --rebase origin main
           git push origin HEAD:main
+      - name: Fail if any country failed
+        # After the commit, so the countries that built still ship. Names them in the email.
+        if: steps.build.outputs.rc == '1'
+        run: |
+          python3 -c "import json; s=json.load(open('data/state.json', encoding='utf-8')); [print('::error title=country failed::' + k + ': ' + str(v)[:200]) for k, v in s['failed'].items()]"
+          exit 1

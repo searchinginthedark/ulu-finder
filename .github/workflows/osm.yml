@@ -40,7 +40,9 @@ jobs:
       - name: Tests
         run: python -m unittest discover -s tests -t .
       - name: Match
-        # exit 1 = some countries kept last week's file: still commit the rest.
+        id: match
+        # exit 1 = some countries kept last week's file: still commit the rest, then go red in
+        # the last step (2026-10-19: KR, PH, MM download timeouts sat inside a green run).
         # exit 2 = nothing written: fail the run.
         run: |
           set +e
@@ -49,6 +51,7 @@ jobs:
           rc=$?
           grep -E "Elapsed|Maximum resident" time.log
           echo "osm rc=$rc"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
           cat data/osm/_state.json
           if [ "$rc" = "2" ]; then exit 1; fi
           exit 0
@@ -62,3 +65,9 @@ jobs:
           git commit -m "data: weekly osm $(date -u +%Y-%m-%d)"
           git pull --rebase origin main
           git push origin HEAD:main
+      - name: Fail if any country failed
+        # After the commit, so the countries that matched still ship. Names them in the email.
+        if: steps.match.outputs.rc == '1'
+        run: |
+          python3 -c "import json; s=json.load(open('data/osm/_state.json', encoding='utf-8')); [print('::error title=country failed::' + k + ': ' + str(v)[:200]) for k, v in s['failed'].items()]"
+          exit 1
