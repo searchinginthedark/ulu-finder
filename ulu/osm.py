@@ -387,15 +387,20 @@ def area_trusted(picks, ok):
     return picks >= AREA_MIN_HOLDOUT and ok >= AREA_MIN_PRECISION * picks
 
 
-def accept(new_matched, prev_matched, food_spots=0):
+def accept(new_matched, prev_matched, food_spots=0, prev_food=None):
     """Coverage guard: a sudden collapse is an outage (a truncated extract, a renamed tag), not a
     week in which half the restaurants closed. Small pools are too noisy to judge. Zero matches
-    among many food spots means the extract does not cover the country at all (TH matched ~56%)."""
+    among many food spots means the extract does not cover the country at all (TH matched ~56%).
+    A shorter spot list (a collect cut) lowers last week's count in proportion, never raises it:
+    PH's nodesc cut halved its food spots and was blocked as an outage on 2026-10-31."""
     if new_matched == 0 and food_spots >= 50:
         return False
     if prev_matched is None or prev_matched < 20:
         return True
-    return new_matched >= COVERAGE_FLOOR * prev_matched
+    expected = prev_matched
+    if prev_food and food_spots < prev_food:
+        expected = prev_matched * food_spots / prev_food
+    return new_matched >= COVERAGE_FLOOR * expected
 
 
 def fresh(as_of, now=None, max_days=MAX_EXTRACT_AGE):
@@ -725,8 +730,10 @@ def run_extract(osm_path, countries, workdir, keep_file, log):
         prev = load_json(out)
         prev_n = prev.get("matched") if prev else None
         food = sum(1 for s in spots if s.get("cat") in FOOD and s.get("lat") is not None)
-        if not accept(len(entries), prev_n, food):
-            failed[cc] = f"matched {len(entries)} vs {prev_n} last time: kept last week's file"
+        prev_food = prev.get("food_spots_with_coords") if prev else None
+        if not accept(len(entries), prev_n, food, prev_food):
+            failed[cc] = (f"matched {len(entries)} of {food} vs {prev_n} of {prev_food} last time: "
+                          "kept last week's file")
             log(f"{cc}: COVERAGE GUARD {failed[cc]}")
             continue
         write_json(out, {"cc": cc, "format": FORMAT, "as_of": as_of.strftime("%Y-%m-%d"), "source": url,

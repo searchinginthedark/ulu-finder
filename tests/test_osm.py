@@ -168,6 +168,21 @@ class GuardTest(unittest.TestCase):
     def test_small_pool_is_not_judged(self):
         self.assertTrue(osm.accept(2, 19))
 
+    def test_a_smaller_spot_list_is_not_an_outage(self):
+        # PH 2026-10-31: the nodesc cut took food spots 1925 -> 899, matches 781 -> 393
+        self.assertTrue(osm.accept(393, 781, food_spots=899, prev_food=1925))
+        self.assertFalse(osm.accept(393, 781, food_spots=899))  # without the old count, raw floor
+
+    def test_a_smaller_spot_list_still_catches_a_collapse(self):
+        # near-miss: 899/1925 of 781 expected = 364.7, floor 70% = 255.3
+        self.assertTrue(osm.accept(256, 781, food_spots=899, prev_food=1925))
+        self.assertFalse(osm.accept(255, 781, food_spots=899, prev_food=1925))
+
+    def test_a_bigger_spot_list_keeps_the_raw_floor(self):
+        # new listings match less often at first; growth must not raise the bar into a false alarm
+        self.assertTrue(osm.accept(100, 100, food_spots=400, prev_food=200))
+        self.assertFalse(osm.accept(69, 100, food_spots=400, prev_food=200))
+
     def test_zero_matches_on_a_big_country_is_an_outage(self):
         # an extract that does not cover the country (HK/MO on the China file is unverified)
         self.assertFalse(osm.accept(0, None, food_spots=50))
