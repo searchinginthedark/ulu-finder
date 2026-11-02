@@ -1,3 +1,7 @@
+## v2026.11.02
+
+- fix(osm): coverage guard scales by a shorter spot list
+
 ## v2026.10.19.2
 
 - ci: a partial collect or osm run goes red after committing
